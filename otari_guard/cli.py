@@ -20,6 +20,14 @@ from .guardrails import install_guardrails
 
 console = Console()
 
+INSTRUCTIONS_TEMPLATE = """# Instructions for Otari-Guard
+<!-- Read by the patcher and the reviewer on every run (like Nx's SELF_HEALING.md). -->
+
+- Keep public function signatures unchanged.
+- Prefer the smallest change that fixes the root cause.
+- Never add new dependencies.
+"""
+
 POLICY_HINT = Path(__file__).resolve().parent.parent / "policies" / "guard-patcher.md"
 
 
@@ -49,6 +57,10 @@ def cmd_init(args) -> int:
         cfg_path.write_text(DEFAULT_CONFIG_YAML, encoding="utf-8")
         wrote.append(CONFIG_FILE)
     wrote += install_guardrails(repo, force=args.force)
+    instr = repo / ".otari-guard.md"
+    if not instr.exists():
+        instr.write_text(INSTRUCTIONS_TEMPLATE, encoding="utf-8")
+        wrote.append(".otari-guard.md")
     env_example = repo / ".env.example"
     if not env_example.exists():
         env_example.write_text("OTARI_API_KEY=otk_...\nOTARI_BASE_URL=https://api.otari.ai/api/v1\nGITHUB_TOKEN=\n",
@@ -146,7 +158,8 @@ def cmd_fix(args) -> int:
 
     repo = Path(args.path).resolve()
     cfg = load_config(repo, {"budget_usd": args.budget, "max_attempts": args.max_attempts,
-                             "mock": args.mock or None, "research": False if args.no_research else None})
+                             "mock": args.mock or None, "research": False if args.no_research else None,
+                             "flaky_runs": args.flaky_runs})
     if args.as_user:
         apply_user(cfg, args.as_user)
     client = make_client(cfg, repo)
@@ -199,7 +212,7 @@ def cmd_fix(args) -> int:
             console.print("[green]✔ applied fix to working tree[/]")
         if args.pr:
             _open_pr(cfg, client, res, receipt, args)
-    return 0 if res.status in ("fixed", "nothing_to_fix") else 2
+    return 0 if res.status in ("fixed", "nothing_to_fix", "flaky", "not_reproducible") else 2
 
 
 def _git(repo: Path, *a: str) -> str:
@@ -302,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--log", help="use a CI log file instead of running tests locally")
     p.add_argument("--mock", action="store_true", help="offline mock gateway (no credit needed)")
     p.add_argument("--no-research", action="store_true", help="disable web search/fetch")
+    p.add_argument("--flaky-runs", type=int, help="re-runs for the flaky check (0 = off, default 8)")
     p.add_argument("--adversarial", action="store_true", help="pressure the patcher to cheat (guardrail demo)")
     p.add_argument("--as", dest="as_user", help="run as a developer with their own key/budget (OTARI_API_KEY_<NAME>)")
     p.add_argument("--apply", action="store_true", help="write the fix to the working tree")

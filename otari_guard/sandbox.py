@@ -46,37 +46,56 @@ if not has_pytest():
     if not has_pytest():
         runner = "mini"
 
-if runner == "pytest":
-    args = __ARGS__
-    p = subprocess.run([sys.executable, "-m", "pytest", *args], cwd=WORK, capture_output=True, text=True, timeout=__TIMEOUT__,
-                       env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PY_COLORS": "0", "NO_COLOR": "1"})
-    out, code = (p.stdout or "") + (p.stderr or ""), p.returncode
-else:
-    # Minimal fallback runner: test_*.py modules, test_* functions, plain asserts.
-    sys.path.insert(0, WORK)
-    buf, failed, ran = io.StringIO(), 0, 0
-    for root, _, names in os.walk(WORK):
-        for n in sorted(names):
-            if n.startswith("test_") and n.endswith(".py"):
-                rel = os.path.relpath(os.path.join(root, n), WORK)
-                mod = rel[:-3].replace(os.sep, ".")
-                try:
-                    m = importlib.import_module(mod)
-                except Exception:
-                    failed += 1; buf.write(f"ERROR collecting {rel}\n{traceback.format_exc()}\n"); continue
-                for attr in sorted(dir(m)):
-                    fn = getattr(m, attr)
-                    if attr.startswith("test_") and callable(fn):
-                        ran += 1
-                        try:
-                            fn()
-                        except Exception:
-                            failed += 1; buf.write(f"FAILED {rel}::{attr}\n{traceback.format_exc()}\n")
-    out = buf.getvalue() + f"\n{ran - failed} passed, {failed} failed (mini runner)\n"
-    code = 1 if failed or not ran else 0
+
+def run_once():
+    if runner == "pytest":
+        args = __ARGS__
+        p = subprocess.run([sys.executable, "-m", "pytest", *args], cwd=WORK, capture_output=True, text=True,
+                           timeout=__TIMEOUT__,
+                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PY_COLORS": "0", "NO_COLOR": "1"})
+        return (p.stdout or "") + (p.stderr or ""), p.returncode
+    # Minimal fallback runner (fresh process per run, like pytest): test_* functions, plain asserts.
+    code = r"""
+import importlib, io, os, sys, traceback
+WORK = sys.argv[1]; sys.path.insert(0, WORK)
+buf, failed, ran = io.StringIO(), 0, 0
+for root, _, names in os.walk(WORK):
+    for n in sorted(names):
+        if n.startswith("test_") and n.endswith(".py"):
+            rel = os.path.relpath(os.path.join(root, n), WORK)
+            try:
+                m = importlib.import_module(rel[:-3].replace(os.sep, "."))
+            except Exception:
+                failed += 1; buf.write(f"ERROR collecting {rel}\\n{traceback.format_exc()}\\n"); continue
+            for attr in sorted(dir(m)):
+                fn = getattr(m, attr)
+                if attr.startswith("test_") and callable(fn):
+                    ran += 1
+                    try:
+                        fn()
+                    except Exception:
+                        failed += 1; buf.write(f"FAILED {rel}::{attr}\\n{traceback.format_exc()}\\n")
+print(buf.getvalue() + f"\\n{ran - failed} passed, {failed} failed (mini runner)")
+sys.exit(1 if failed or not ran else 0)
+"""
+    p = subprocess.run([sys.executable, "-c", code, WORK], capture_output=True, text=True, timeout=__TIMEOUT__)
+    return (p.stdout or "") + (p.stderr or ""), p.returncode
+
+
+codes, first_fail, out = [], None, ""
+for _ in range(__REPEAT__):
+    o, c = run_once()
+    codes.append(c)
+    out = o
+    if c != 0 and first_fail is None:
+        first_fail = o
+if first_fail is not None and codes[-1] == 0:
+    out = first_fail  # show a failing run's output when the last run happened to pass
+code = 0 if all(c == 0 for c in codes) else codes[-1] if codes[-1] != 0 else 1
 
 print(out[-12000:])
-print(__MARK__ + json.dumps({"return_code": code, "runner": runner, "python": sys.version.split()[0]}))
+print(__MARK__ + json.dumps({"return_code": code, "codes": codes, "runner": runner,
+                              "python": sys.version.split()[0]}))
 '''
 
 
@@ -87,6 +106,11 @@ class SandboxOutcome:
     runner: str
     python: str
     return_code: int | None
+    codes: list[int] | None = None   # one exit code per repeated run
+
+    @property
+    def pass_count(self) -> int:
+        return sum(1 for c in self.codes or [] if c == 0)
 
 
 def _b64(obj: object) -> str:
@@ -94,7 +118,8 @@ def _b64(obj: object) -> str:
 
 
 def build_program(files: dict[str, str], delete: list[str] | None = None,
-                  test_command: str = "pytest -q", timeout: int = 50, reset: bool = True) -> str:
+                  test_command: str = "pytest -q", timeout: int = 50, reset: bool = True,
+                  repeat: int = 1) -> str:
     args = test_command.split()[1:] if test_command.split()[:1] == ["pytest"] else ["-q"]
     args = [*args, "--color=no", "-p", "no:cacheprovider"]
     enc = {k: base64.b64encode(v.encode()).decode() for k, v in files.items()}
@@ -104,7 +129,8 @@ def build_program(files: dict[str, str], delete: list[str] | None = None,
             .replace("__ARGS__", repr(args))
             .replace("__TIMEOUT__", str(int(timeout)))
             .replace("__MARK__", repr(MARK))
-            .replace("__RESET__", repr(bool(reset))))
+            .replace("__RESET__", repr(bool(reset)))
+            .replace("__REPEAT__", str(max(1, int(repeat)))))
 
 
 def parse_output(stdout: str, stderr: str = "", return_code: int | None = None) -> SandboxOutcome:
@@ -120,4 +146,4 @@ def parse_output(stdout: str, stderr: str = "", return_code: int | None = None) 
     text = ANSI.sub("", text)
     out = (text + ("\n" + stderr if stderr else "")).strip()
     return SandboxOutcome(passed=code == 0, output=out, runner=meta.get("runner", "?"),
-                          python=meta.get("python", "?"), return_code=code)
+                          python=meta.get("python", "?"), return_code=code, codes=meta.get("codes"))

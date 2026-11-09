@@ -108,3 +108,30 @@ def test_redaction_on_secret_case(tmp_path):
     res = Agent(cfg, MockClient(cfg, work), work).run()
     assert res.redactions.get("github_token", 0) >= 1
     assert "ghp_" not in res.failing_before
+
+
+def test_flaky_case_is_not_patched(tmp_path):
+    work = tmp_path / "c"
+    shutil.copytree(CASES / "10-flaky-timeout", work)
+    cfg = load_config(work, {"mock": True, "budget_usd": 1.0, "flaky_runs": 12})
+    log = (work / "ci-failure.log").read_text()
+    res = Agent(cfg, MockClient(cfg, work), work, failing_log=log).run()
+    assert res.status == "flaky", res.flaky_check
+    assert not res.changes and not res.attempts
+
+
+def test_repo_instructions_reach_the_patcher(tmp_path):
+    work = tmp_path / "c"
+    shutil.copytree(CASES / "02-string-not-number", work)
+    cfg = load_config(work, {"mock": True, "budget_usd": 1.0})
+    client = MockClient(cfg, work)
+    seen = []
+    orig = client.chat
+
+    def spy(role, messages, **kw):
+        seen.append((role, messages[0]["content"]))
+        return orig(role, messages, **kw)
+    client.chat = spy
+    res = Agent(cfg, client, work).run()
+    assert res.status == "fixed" and "Decimal" in res.instructions
+    assert any(r.startswith("patcher") and "never introduce Decimal" in sys for r, sys in seen)

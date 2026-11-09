@@ -1,0 +1,4 @@
+{
+  "summary": "A test asserts a wall-clock deadline on a call with variable latency.",
+  "expect": "flaky"
+}

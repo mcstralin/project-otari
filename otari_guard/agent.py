@@ -50,7 +50,7 @@ class Attempt:
 
 @dataclass
 class RunResult:
-    status: str = "running"   # fixed | not_fixed | budget_stopped | nothing_to_fix | error
+    status: str = "running"   # fixed | not_fixed | flaky | not_reproducible | budget_stopped | nothing_to_fix | error
     summary: str = ""
     failing_before: str = ""
     passing_after: str = ""
@@ -66,6 +66,8 @@ class RunResult:
     events: list[Event] = field(default_factory=list)
     sandbox_runtime: str = ""
     error: str = ""
+    flaky_check: str = ""          # e.g. "8/8 runs failed" or "passed 3/8 runs"
+    instructions: str = ""         # repo instructions applied
 
 
 Listener = Callable[[Event], None]
@@ -169,7 +171,21 @@ class Agent:
                   f"Redacted {n} secret(s) before any model saw the log" if n else "No secrets found in log or source",
                   ", ".join(f"{k}×{v}" for k, v in counts.items()))
 
-        # 3. Triage (small fast model).
+        # 3. Repo-specific instructions for the agent (like Nx's SELF_HEALING.md).
+        ipath = self.repo / cfg.instructions_file
+        if ipath.is_file():
+            text, _ = redact(ipath.read_text(encoding="utf-8")[:4000])
+            r.instructions = text.strip()
+            self.emit("repo", "info", f"Loaded repo instructions from {cfg.instructions_file}",
+                      _first_line(text))
+
+        # 4. Is it even a code bug? Re-run the suite N times in ONE Otari sandbox call.
+        if cfg.flaky_runs and cfg.flaky_runs > 1:
+            verdict = self._flaky_check()
+            if verdict != "real":
+                return
+
+        # 5. Triage (small fast model).
         self.emit("triage", "start", "Triage: classifying the failure", model=cfg.model_for("triage"))
         tri = self._json_call("triage", prompts.TRIAGE_SYSTEM,
                               f"FAILING LOG:\n```\n{tail}\n```\n\nREPO FILES:\n{prompts.files_block(safe_files)}")
@@ -240,6 +256,42 @@ class Agent:
                   f"{len(r.attempts)} attempts across {len(tiers)} model tiers")
 
     # ---------------------------------------------------------------- stages
+    def _flaky_check(self) -> str:
+        """real | flaky | not_reproducible. Flaky tests and environment-only failures
+        are not code bugs: patching them would be a fake fix, so the agent stops."""
+        cfg, r = self.cfg, self.result
+        n = cfg.flaky_runs
+        self.emit("flaky", "start", f"Reproducing in Otari sandbox: {n} runs in one call (flaky check)",
+                  model="otari:code_execution")
+        program = build_program(self.original, [], cfg.test_command, cfg.sandbox_timeout_s - 5,
+                                reset=True, repeat=n)
+        res = self.client.execute(program, container="auto", timeout_s=cfg.sandbox_timeout_s)
+        out = parse_output(res.stdout, res.stderr, res.return_code)
+        if res.container_id:  # keep the warm sandbox (original files) for verification
+            self._container = res.container_id
+            self._sandbox_state = dict(self.original)
+        self.result.sandbox_runtime = f"python {out.python}, runner={out.runner}"
+        runs = len(out.codes or []) or n
+        passes = out.pass_count
+        if passes == 0:
+            r.flaky_check = f"failed {runs}/{runs} runs in the Otari sandbox: a real, reproducible failure"
+            self.emit("flaky", "ok", f"Reproduced: failed {runs}/{runs} runs, a real bug",
+                      _last_line(out.output), model="otari:code_execution")
+            return "real"
+        if passes < runs:
+            r.status = "flaky"
+            r.flaky_check = f"passed {passes}/{runs} runs with identical code: the test is flaky"
+            r.summary = r.summary or "Nondeterministic test: same code passes and fails across runs."
+            self.emit("flaky", "block", f"Flaky test: passed {passes}/{runs} runs with identical code",
+                      "Not a code bug. Refusing to patch; reporting instead of opening a PR.",
+                      model="otari:code_execution")
+            return "flaky"
+        r.status = "not_reproducible"
+        r.flaky_check = f"passed {runs}/{runs} runs in a clean sandbox: the failure depends on the CI environment"
+        self.emit("flaky", "warn", f"Not reproducible: passed {runs}/{runs} runs in a clean Otari sandbox",
+                  "Likely an environment/infra problem, not code. No patch.", model="otari:code_execution")
+        return "not_reproducible"
+
     def _json_call(self, role: str, system: str, user: str, **kw: Any) -> dict:
         last_err = None
         for _ in range(2):
@@ -339,6 +391,9 @@ class Agent:
                feedback: str, att: Attempt) -> dict[str, str | None]:
         self.emit("patch", "start", f"Patch attempt {n} ({tier})", model=model)
         system = prompts.PATCH_SYSTEM + (prompts.ADVERSARIAL_ADDENDUM if self.adversarial else "")
+        if self.result.instructions:
+            system += ("\n\nREPOSITORY INSTRUCTIONS (from the maintainers; follow them):\n"
+                       + self.result.instructions)
         user = (f"FAILING LOG:\n```\n{tail}\n```\n\nTRIAGE: {json.dumps(self.result.triage)}\n\n"
                 + (f"{hint}\n\n" if hint else "")
                 + (f"FEEDBACK FROM PREVIOUS ATTEMPT:\n{feedback}\n\n" if feedback else "")
@@ -406,8 +461,11 @@ class Agent:
     def _review(self, tail: str, changes: dict[str, str | None], sandbox_out: str) -> dict:
         model = self.cfg.model_for("reviewer")
         self.emit("review", "start", "Reviewer checking the diff", model=model)
+        review_system = prompts.REVIEW_SYSTEM + (
+            "\n\nREPOSITORY INSTRUCTIONS (reject diffs that violate them):\n" + self.result.instructions
+            if self.result.instructions else "")
         verdict = self._json_call(
-            "reviewer", prompts.REVIEW_SYSTEM,
+            "reviewer", review_system,
             f"FAILURE:\n```\n{_last_lines(tail, 30)}\n```\nDIFF:\n```diff\n{make_diff(self.original, changes)}\n```\n"
             f"SANDBOX RESULT:\n```\n{_last_lines(sandbox_out, 10)}\n```")
         self.result.review = verdict
@@ -422,6 +480,11 @@ def _extract_urls(text: str) -> list[str]:
     found = {u.rstrip(".,;:!?'\"]}") for u in re.findall(r"https?://[^\s'\"<>()\[\]{}]+", text)}
     found = {u for u in found if "." in u.split("://", 1)[1].split("/", 1)[0]}
     return sorted(u for u in found if not any(o != u and o.startswith(u) for o in found))
+
+
+def _first_line(text: str) -> str:
+    lines = [ln.strip("# ").strip() for ln in text.strip().splitlines() if ln.strip()]
+    return lines[0][:200] if lines else ""
 
 
 def _last_line(text: str) -> str:

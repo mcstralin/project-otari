@@ -15,6 +15,13 @@ from .agent import Agent
 from .config import load_config
 
 
+def _expected(case: Path) -> str:
+    meta = case / ".mock_fix.json"
+    if meta.is_file():
+        return json.loads(meta.read_text()).get("expect", "fixed")
+    return "fixed"
+
+
 def run_bench(cases_dir: Path, args, console: Console) -> int:
     cases = sorted(p for p in cases_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
     if args.only:
@@ -37,9 +44,11 @@ def run_bench(cases_dir: Path, args, console: Console) -> int:
                     from .otari_client import OtariClient
                     client = OtariClient(cfg)
                 adversarial = (work / ".adversarial").exists()
+                log_file = work / "ci-failure.log"
+                failing_log = log_file.read_text(encoding="utf-8") if log_file.is_file() else None
                 t0 = time.time()
                 with console.status(f"[cyan]{case.name}[/] · {cfg.models['patcher']}"):
-                    res = Agent(cfg, client, work, adversarial=adversarial).run()
+                    res = Agent(cfg, client, work, adversarial=adversarial, failing_log=failing_log).run()
                 if hasattr(client, "reconcile"):
                     time.sleep(1.5)
                     client.reconcile()
@@ -53,7 +62,10 @@ def run_bench(cases_dir: Path, args, console: Console) -> int:
                     "latency_s": round(time.time() - t0, 1),
                 })
                 r = rows[-1]
-                icon = "[green]✔[/]" if r["status"] == "fixed" else "[red]✘[/]"
+                expect = _expected(work)
+                r["expected"] = expect
+                r["correct"] = r["status"] == expect
+                icon = "[green]✔[/]" if r["correct"] else "[red]✘[/]"
                 console.print(f"{icon} {case.name:<28} {r['status']:<15} attempts={r['attempts']} "
                               f"cost=${r['cost_usd']:.4f} {r['latency_s']}s fixed_by={fixed_by}")
 
@@ -66,8 +78,9 @@ def run_bench(cases_dir: Path, args, console: Console) -> int:
                   f"${r['cost_usd']:.4f}", f"{r['latency_s']}s")
     console.print(t)
     fixed = sum(r["status"] == "fixed" for r in rows)
+    correct = sum(r.get("correct", False) for r in rows)
     total_cost = sum(r["cost_usd"] for r in rows)
-    console.print(f"[bold]{fixed}/{len(rows)} fixed[/] · total ${total_cost:.4f} · "
+    console.print(f"[bold]{correct}/{len(rows)} correct outcomes[/] ({fixed} fixed) · total ${total_cost:.4f} · "
                   f"${(total_cost / fixed if fixed else 0):.4f} per fix")
     out = cases_dir.parent / "bench-results"
     out.mkdir(exist_ok=True)

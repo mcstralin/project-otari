@@ -68,6 +68,8 @@ class Config:
     user: str | None = None           # developer label (cost attribution tag); identity = the API key
     end_user: str | None = None       # sent as `user` only for keys configured with end-user budgets
     sandbox_timeout_s: int = 60
+    flaky_runs: int = 8               # re-run the failing suite N times in ONE sandbox call; 0 = off
+    instructions_file: str = ".otari-guard.md"   # repo-specific guidance for the agent (like Nx SELF_HEALING.md)
     test_command: str = "pytest -q"
     protected_paths: list[str] = field(default_factory=lambda: [".github/**", ".otari/**"])
     github_repo: str | None = None    # owner/name

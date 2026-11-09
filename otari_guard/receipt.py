@@ -15,6 +15,8 @@ STATUS_LINE = {
     "not_fixed": "❌ Not fixed: no passing, guardrail-compliant patch within the attempt budget",
     "budget_stopped": "🛑 Stopped at budget: diagnosis only, no PR opened",
     "nothing_to_fix": "✅ Tests already pass",
+    "flaky": "🎲 Flaky test: same code passes and fails, so no patch (a fix here would be fake)",
+    "not_reproducible": "🌐 Not reproducible in a clean sandbox: likely a CI environment issue, so no patch",
     "error": "⚠️ Error talking to Otari",
 }
 
@@ -55,6 +57,14 @@ def render_markdown(cfg: Config, res: RunResult, calls: list, spent: float,
             L.append(f"- Files to look at: {', '.join(f'`{f}`' for f in files)}")
         L.append("- Next step: raise this developer's Otari budget, or fix by hand using the notes above.\n")
 
+    if res.flaky_check:
+        L.append(f"**Reproduction (Otari sandbox):** {res.flaky_check}\n")
+    if res.status == "flaky":
+        L.append("### Recommendation")
+        L.append("- Quarantine or stabilize the test (fixed seeds, no wall-clock deadlines, mock the network), then re-run CI.")
+        L.append("- No code was changed and no PR was opened.\n")
+    if res.instructions:
+        L.append(f"**Repo instructions applied:** `{_last(res.instructions)[:120]}`…\n")
     L.append("### Tests")
     L.append(f"- Before: `{_last(res.failing_before)}`")
     if res.passing_after:

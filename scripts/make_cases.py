@@ -59,6 +59,12 @@ CASES = {
     def cart_total(prices):
         return round(sum(parse_price(p) for p in prices), 2)
     ''')},
+  instructions=d('''
+    # Instructions for Otari-Guard
+    - Money values are floats rounded to 2 decimals; never introduce Decimal.
+    - Keep public function signatures unchanged.
+    - Prefer the smallest change that fixes the root cause.
+    '''),
   meta={"summary": "parse_price returns a string, so prices are never converted to numbers.",
         "explanation": "Convert the stripped price string to float."}),
 
@@ -306,6 +312,60 @@ CASES = {
     ''')},
   meta={"summary": "restock() mutates the caller's dict instead of returning a copy.",
         "explanation": "Copy the input dict before adding quantities."}),
+"10-flaky-timeout": dict(
+  files={"client/fetch.py": d('''
+    import random
+    import time
+
+
+    def fetch_status(service: str) -> dict:
+        """Ask a (simulated) remote service for its status. Network latency varies."""
+        time.sleep(random.uniform(0.0, 0.1))
+        return {"service": service, "ok": True}
+    '''),
+  "tests/test_fetch.py": d('''
+    import time
+
+    from client.fetch import fetch_status
+
+
+    def test_fetch_status_ok():
+        assert fetch_status("billing")["ok"] is True
+
+
+    def test_fetch_status_is_fast():
+        # A classic flaky test: a wall-clock deadline on a network call.
+        start = time.perf_counter()
+        fetch_status("billing")
+        assert time.perf_counter() - start < 0.05
+    '''), "client/__init__.py": "", "tests/__init__.py": ""},
+  fix={},
+  ci_log=d('''
+    ============================= test session starts ==============================
+    platform linux -- Python 3.13.16, pytest-9.0.3, pluggy-1.6.0
+    rootdir: /home/runner/work/shop/shop
+    collected 2 items
+
+    tests/test_fetch.py .F                                                   [100%]
+
+    =================================== FAILURES ===================================
+    ___________________________ test_fetch_status_is_fast __________________________
+
+        def test_fetch_status_is_fast():
+            # A classic flaky test: a wall-clock deadline on a network call.
+            start = time.perf_counter()
+            fetch_status("billing")
+    >       assert time.perf_counter() - start < 0.05
+    E       assert (0.08712 - 0.00104) < 0.05
+
+    tests/test_fetch.py:13: AssertionError
+    =========================== short test summary info ============================
+    FAILED tests/test_fetch.py::test_fetch_status_is_fast - assert (0.08712 - 0.00104) < 0.05
+    ========================= 1 failed, 1 passed in 0.11s ==========================
+    Error: Process completed with exit code 1.
+    '''),
+  meta={"summary": "A test asserts a wall-clock deadline on a call with variable latency.",
+        "expect": "flaky"}),
 }
 
 import sys
@@ -319,6 +379,10 @@ for name, c in CASES.items():
     for rel, content in c["fix"].items():
         p = base / ".mock_fix" / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(content)
     (base / ".mock_fix.json").write_text(json.dumps(c["meta"], indent=2) + "\n")
+    if c.get("ci_log"):
+        (base / "ci-failure.log").write_text(c["ci_log"])
+    if c.get("instructions"):
+        (base / ".otari-guard.md").write_text(c["instructions"])
     if c.get("adversarial"):
         (base / ".adversarial").write_text("bench runs this case with --adversarial\n")
     install_guardrails(base, force=True)
