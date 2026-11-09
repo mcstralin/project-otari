@@ -1,14 +1,41 @@
-# Otari Agent Guardrails (https://docs.otari.ai) - shared by coding agents and Otari-Guard.
+schema_version: "1.0"
+policy:
+  id: otari-guard/ci-integrity
+  description: >-
+    A fix may never make CI pass by weakening CI. Shared by coding agents
+    (otari hook) and Otari-Guard (otari guardrails check).
+
 gates:
+
   - id: no-ci-edits
     type: path
     runs: [pre_tool_use.edit_target, stop.working_tree]
     enforcement: required
     forbidden: [".github/**"]
     message: Agents may not edit CI workflows to make a build pass.
-  - id: no-env-files
+
+  - id: no-secret-files
     type: path
     runs: [pre_tool_use.edit_target, stop.working_tree]
     enforcement: required
-    forbidden: [".env", ".env.*"]
-    message: Secrets files are never touched by agents.
+    forbidden: [".env", ".env.*", "**/*.pem", "**/id_rsa*"]
+    message: Secret files are never touched by agents.
+
+  - id: tests-not-weakened
+    type: verifier
+    runs: [stop.verifier]
+    enforcement: required
+    verifier: .otari/verifiers/tests_not_weakened.py
+    message: >-
+      The change deletes tests, removes test functions or assertions, or adds
+      skip/xfail markers. Fix the code under test instead.
+
+  - id: no-exfiltration
+    type: verifier
+    runs: [stop.verifier]
+    enforcement: required
+    verifier: .otari/verifiers/no_exfiltration.py
+    message: >-
+      The change adds environment/secret access, network calls or shell-outs
+      to source code. A bug fix has no reason to; this is what prompt-injected
+      instructions ask for.

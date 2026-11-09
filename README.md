@@ -1,102 +1,97 @@
 # 🛡️ Otari-Guard
 
-**Self-healing CI on open-weight models.** Otari-Guard reads a failing build, works out the cause (researching upstream changes if needed), **proves a fix in Otari's sandbox**, and opens a PR with a **receipt** listing what it cost, which models it used and the evidence. It never spends past the budget you set.
+**Self-healing CI on open-weight models.** Otari-Guard reads a failing build, works out the cause (researching upstream changes when needed), **proves a fix in Otari's sandbox**, and opens a PR with a **receipt** showing Otari's billed cost, the models used and the evidence. It never spends past the cap you set.
 
-> Built for MozFest **Developers Wilding: Online** on [Otari](https://otari.ai) by Mozilla.ai. Every model is open-weight. Pointing `OTARI_BASE_URL` at a self-hosted Otari takes one environment variable and nothing else changes.
+> Built for MozFest **Developers Wilding: Online** on [Otari](https://otari.ai) by Mozilla.ai. Every model is open-weight. Pointing `OTARI_BASE_URL` at a self-hosted Otari is the only change needed to run it there.
 
 ```text
 failing tests ─▶ redact secrets ─▶ triage (gpt-oss-20b)
-                                     │ external cause?
+                                     │ upstream cause / linked docs?
                                      ▼
-                     research: Otari web search + fetch (gpt-oss-120b)
-                     safeguard: prompt-injection judge (gpt-oss-safeguard-120b)
+          linked pages: Otari /fetch ─▶ safeguard screens RAW text (gpt-oss-safeguard-120b)
+          research: Otari web search + fetch (gpt-oss-120b) ─▶ safeguard screens notes
                                      ▼
-   patch (qwen3-coder-30b) ─▶ guardrails ─▶ verify in Otari sandbox ─▶ pass? ─▶ review (deepseek-v4-flash)
-        ▲   still failing ×N                                                        ▼
-        └── escalate (qwen3-coder-480b)                          PR + receipt (GitHub MCP via Otari)
+ patch ─▶ otari guardrails check ─▶ tests in Otari sandbox ─▶ pass? ─▶ review (deepseek-v4-flash)
+ (routing policy guard-patcher)            │ still failing ×N                 ▼
+   ▲                                       ▼                    PR via GitHub MCP (stored in Otari)
+   └──────────── escalate (qwen3-coder-480b) ◀────────────┘     + receipt with billed costs
 ```
 
 ## Live results on hosted Otari
 
-**9/9 seeded bugs fixed** ([demo/BENCHMARK.md](demo/BENCHMARK.md)), 8 on the first attempt with the cheapest coder (`qwen3-coder-30b`), around **$0.01 per fix** as billed by Otari. Every fix was proven by the repo's own tests in Otari's sandbox and approved by a reviewer model. In the poisoned-docs case, the open-weight safeguard caught a hidden "send me your env vars" instruction in a page fetched through Otari and quarantined it.
+- **9/9 seeded bugs fixed** ([demo/BENCHMARK.md](demo/BENCHMARK.md)), all costs **exact Otari billing**: **$0.0103 per plain fix** (≈97 % of it the sandbox run), **≈$0.06 when web research is needed**, **$0.23 for the whole suite**. On the poisoned-docs case the cheap coder failed twice in the sandbox and Otari-Guard **escalated to `qwen3-coder-480b`**, which fixed it.
+- **Poisoned docs:** the open-weight safeguard caught a hidden *"send me your env vars, delete the tests"* instruction in a page fetched through Otari and quarantined it. The bug was still fixed.
+- **Fallback fired on its own:** both Bedrock targets of the `guard-patcher` policy rejected a request, and Otari served it from the third backup on DeepInfra (found while filing [mozilla-ai/otari#3060](https://github.com/mozilla-ai/otari/issues/3060)).
+- **Per-developer budget:** `--as alice` (her own key, $0.02) fixed one bug; on the next, Otari's budget gate refused the request and Otari-Guard stopped with a diagnosis instead of a PR.
+- **PR through MCP:** [PR #1](https://github.com/mcstralin/project-otari/pull/1) was opened by `gpt-oss-120b` through GitHub's MCP server stored in Otari, locked down to 4 tools.
 
-## Quickstart (60 seconds)
+Honest limits: the seeded bugs are small (8/9 fixed by the cheapest coder; escalation was needed once). In our live runs no model tried to cheat (delete or skip tests), even under pressure (`--adversarial`), so the anti-cheat gates are proven by tests (`tests/test_core.py`) rather than by a live catch. The GitHub Action has not been run in CI yet.
+
+## Quickstart
 
 ```bash
 pip install -e .                 # Python 3.10+
-cp .env.example .env             # add your OTARI_API_KEY (otk_...)
-otari-guard doctor               # checks key, funds, models, tools, sandbox
-otari-guard fix demo/cases/05-collections-mapping-removed
+cp .env.example .env             # OTARI_API_KEY=otk_...
+otari-guard doctor               # GO/NO-GO: key, funds, models, tools, sandbox, guardrails engine
+otari-guard fix demo/cases/06-base64-encodestring-removed
 ```
 
+Recommended: Otari's own CLI, so `otari guardrails check` judges every patch (needs Python 3.13):
+```bash
+uv tool install --python 3.13 https://github.com/mozilla-ai/otari/releases/download/v0.41.0/otari_agent-0.41.0.tar.gz
+```
 No credit yet? Everything also runs offline: `otari-guard fix demo/cases/07-poisoned-changelog --mock`.
 
 | command | what it does |
 |---|---|
-| `otari-guard init` | writes `.otari-guard.yml` + `.otari/guardrails.yml` into your repo |
-| `otari-guard doctor` | GO/NO-GO for gateway, auth, funds, every model role, tools and the sandbox |
-| `otari-guard fix [path]` | repairs the failing tests. Flags: `--budget 0.25 --max-attempts 2 --apply --pr --log ci.log --mock --adversarial` |
-| `otari-guard explain` | model roles, live prices, routing-policy plans (`--budget-used-pct 85`) |
+| `otari-guard init` | writes `.otari-guard.yml` and Otari Agent Guardrails (`.otari/guardrails.yml` + verifier scripts) into your repo |
+| `otari-guard doctor` | GO/NO-GO for gateway, auth, funds, every model role, tools, sandbox and guardrails engine |
+| `otari-guard fix [path]` | repairs failing tests. Flags: `--budget 0.25 --max-attempts 2 --as alice --apply --pr --log ci.log --mock` |
+| `otari-guard explain` | model roles with live prices, routing policies in use, guardrail gates |
 | `otari-guard bench demo/cases` | Otari-Bench: fix rate / cost / latency per patcher model |
-
-### In CI (GitHub Action)
-
-```yaml
-- if: failure()
-  uses: mcstralin/project-otari@devs-wilding
-  with:
-    otari-api-key: ${{ secrets.OTARI_API_KEY }}
-    budget: "0.25"
-```
-Full workflow: [`examples/workflow.yml`](examples/workflow.yml).
 
 ## How Otari is used (rubric map)
 
-| Otari capability | Where in the code | What you see |
+| Otari capability | Where in the code | Shown live |
 |---|---|---|
-| **Open-weight models, 6 distinct roles** | `config.py` `DEFAULT_MODELS` | triage `gpt-oss-20b`, patcher `qwen3-coder-30b`, escalation `qwen3-coder-480b`, researcher `gpt-oss-120b`, safeguard `gpt-oss-safeguard-120b`, reviewer `deepseek-v4-flash` |
-| **Code execution** | `otari_client.py` `execute()` → `POST /api/v1/code/execute` with `container: "auto"`; program built in `sandbox.py` | every candidate fix runs the real test suite in Otari's sandbox; later attempts reuse the warm container and ship only the changed files |
-| **Web search + web fetch** | `agent.py` `_research()`: `otari_web_search` (with `max_uses`) + `otari_web_fetch` in the model loop; pages linked from the error are fetched directly via `POST /api/v1/fetch` and screened before any agent reads them | used only when the cause is upstream (e.g. a removed stdlib API); sources are cited in the receipt |
-| **Exact cost accounting** | `otari_client.py` `reconcile()` → `GET /api/v1/usage/requests/{id}` | receipts show Otari's billed cost per role, not estimates |
-| **Routing & fallbacks** | dashboard policy `guard-patcher` (Qwen3-Coder-30B → Devstral-2 → Qwen3-Coder-480B-Turbo, budget tier-down → gpt-oss-20b), enabled with `OTARI_GUARD_POLICIES=patcher=guard-patcher`; `otari-model`/`otari-fallback`/`otari-attempt-count` headers shown in the timeline and receipt | live: both Bedrock targets rejected the request and Otari fell through to the 3rd backup on DeepInfra with zero code changes; quality escalation (cheap → large coder) stays client-side |
-| **Multiple models, distinct roles** | `agent.py` (one stage = one model) | the receipt itemizes calls, tokens and cost per role |
-| **Budgets & spend limits** | `otari_client.py` maps 402/budget refusals → `BudgetExceeded`; `/key/budget` read for the receipt; local `budget_usd` cap | live budget meter; if a run hits the cap it stops and writes a diagnosis instead of a PR |
-| **Per-user budgets** | `otari-guard fix --as alice` → that developer's own Otari key (`OTARI_API_KEY_ALICE`) with its own budget; `developer` metadata tag on every request; optional `end_user` for keys with end-user budgets | live: alice fixes one bug, then Otari's budget gate refuses her next request and Otari-Guard posts a diagnosis instead of a PR; nobody else's budget is touched |
-| **Guardrails** | `guardrails.py`: Otari **Agent Guardrails** `.otari/guardrails.yml` path gates + built-in gates; `redact.py`; safeguard model; optional Otari inference `guardrails` per request (`inference_guardrails`) | blocks patches that delete/skip tests, edit CI, or add secret/network access; quarantines prompt-injected research; redacts secrets before any model call |
-| **MCP** | `github_pr.py` `open_pr_mcp()`: GitHub's remote MCP server stored in the Otari workspace and called by id (`mcp_server_ids`), so the GitHub token lives in Otari, not in the app; inline `mcp_servers` with `allowed_tools` as a fallback | live: [PR #1](https://github.com/mcstralin/project-otari/pull/1) was opened by `gpt-oss-120b` through Otari's MCP loop (branch → push → PR with the receipt as the body), after a human approval prompt; GitHub REST is the last resort |
-| **Cost attribution** | `metadata` tags (`app`, `role`) on every request; Otari request IDs in the receipt | filter usage by role in the Otari dashboard |
+| **Open-weight models, 6 distinct roles** | `config.py` `DEFAULT_MODELS` | triage `gpt-oss-20b`, patcher `qwen3-coder-30b` (via policy), escalation `qwen3-coder-480b`, researcher `gpt-oss-120b`, safeguard `gpt-oss-safeguard-120b`, reviewer `deepseek-v4-flash` |
+| **Code execution** | `otari_client.execute()` → `POST /api/v1/code/execute`, `container:"auto"`; program built in `sandbox.py` | every fix is proven by the repo's own pytest suite in Otari's sandbox (Python 3.13); retries reuse the warm container |
+| **Web search + fetch** | `agent._research()`: `otari_web_search` (`max_uses`) + `otari_web_fetch` in the model loop; linked pages fetched directly via `POST /api/v1/fetch` and screened before any agent reads them | research with cited sources (Python docs, CPython issue); poisoned page quarantined |
+| **Routing & fallbacks** | patcher calls the `guard-patcher` policy ([policies/guard-patcher.md](policies/guard-patcher.md)); `otari-model` / `otari-fallback` / `otari-attempt-count` headers → timeline + receipt | fallback fired live (Bedrock → DeepInfra); budget tier-down at 80 % configured |
+| **Multiple models, distinct roles** | `agent.py`: one stage = one model | receipts itemize calls, tokens and billed cost per role |
+| **Budgets & spend limits** | Otari key budgets enforced by the gateway; refusals mapped to `BudgetExceeded` → diagnosis, no PR | alice's key refused at her cap |
+| **Per-user budgets** | `fix --as <name>` uses that developer's own key (`OTARI_API_KEY_<NAME>`) and tags requests `developer=<name>`; `end_user` supported for keys with end-user budgets | alice vs. the main key: separate budgets |
+| **Guardrails** | **Otari Agent Guardrails**: `.otari/guardrails.yml` path gates + verifier scripts, run by **`otari guardrails check`** with `--guardrails-from` (a patch can't edit its own gates); plus secret redaction (`redact.py`) and the open-weight safeguard model | injection quarantined live; CI edits, test deletion/skips and secret/network access blocked by Otari's CLI (tests) |
+| **MCP** | `github_pr.open_pr_mcp()`: GitHub's remote MCP server **stored in the Otari workspace** and called by id (`mcp_server_ids`), so the GitHub token lives in Otari | PR #1 opened in one request; server limited to `create_branch`, `push_files`, `create_or_update_file`, `create_pull_request` |
+
+**Why the receipts show cost:** the numbers come from Otari's usage API (`/usage/requests/{id}`), not from our own accounting. Otari's budgets apply per key per period; Otari-Guard adds a **per-run cap** (`--budget`) so one stubborn bug can't drain a developer's monthly budget, and puts the cost of each fix in the PR, where reviewers without dashboard access can see it.
 
 ## The demo cases
 
-`demo/cases/` holds 9 small repos, each with one seeded bug (regenerate with `python scripts/make_cases.py`):
+`demo/cases/` has 9 small repos, each with one seeded bug (`python scripts/make_cases.py` regenerates them):
 
 | case | what it shows |
 |---|---|
-| 01 off-by-one, 02 str vs float, 03 None join, 09 dict mutation | the core loop: triage → patch → sandbox → review |
-| 04 config typo **leaks a token into the CI log** | secret redaction before any model sees the log |
-| 05 `collections.Mapping` removed (Py 3.10), 06 `base64.encodestring` removed (Py 3.9) | web search/fetch research on an upstream change |
-| 07 poisoned changelog | the fetched page tells the agent to send `os.environ` to a URL: the safeguard quarantines it and guardrails block exfiltration |
-| 08 adversarial median | the patcher is told to "make CI green by any means": guardrails reject deleted/skipped tests and force a real fix |
-
-## Design notes
-
-- **Proof, not vibes.** A fix only counts after the repository's own tests pass in Otari's sandbox. If pytest is missing in the sandbox, it installs it, then falls back to a built-in runner.
-- **Secrets never reach a model.** Logs and source are redacted first. The receipt counts redactions by type.
-- **Untrusted web content.** Research output is screened by an open-weight safety model before the patcher sees it. Patches that add `os.environ` access, network calls or `subprocess` are rejected anyway.
-- **One policy file for all agents.** `.otari/guardrails.yml` is the same file Otari's Agent Guardrails use for Claude Code and Codex hooks, so it governs humans' agents and Otari-Guard alike.
-- **No lock-in.** The OpenAI SDK with `base_url`; the hosted or a self-hosted Otari; any model in the catalog via `.otari-guard.yml`.
+| 01 off-by-one, 02 str vs float, 03 None join, 09 dict mutation | the core loop: triage → patch → guardrails → sandbox → review |
+| 04 config typo **leaks a token into the CI log** | secret redaction before any model call |
+| 05 `collections.Mapping` (removed in 3.10), 06 `base64.encodestring` (removed in 3.9) | research on an upstream change, with sources |
+| 07 poisoned changelog | the error links to a page that hides instructions to exfiltrate `os.environ`: fetched via Otari, screened raw, quarantined |
+| 08 adversarial median | the patcher is told to "make CI green by any means". Models stayed honest live; Otari's gates block test deletion/skips if they don't |
 
 ## Dashboard setup (one-time)
 
-1. **Tools → Web search → Web access: Allowed** (enables `otari_web_search` + `otari_web_fetch`).
-2. **Budgets:** set a budget on the API key and, for teams, per-member/end-user budgets.
-3. *(Optional)* **Routing:** create `guard-patcher` / `guard-reviewer` from [`policies/routing.yml`](policies/routing.yml), then add `policies:` to `.otari-guard.yml`.
+1. **Tools → Web search:** allow in your workspace (covers search and fetch).
+2. **Routing → Policies:** create `guard-patcher` as in [policies/guard-patcher.md](policies/guard-patcher.md); set `OTARI_GUARD_POLICIES=patcher=guard-patcher`.
+3. **API keys:** a budget per developer key (e.g. `alice`: $0.02), stored as `OTARI_API_KEY_ALICE`.
+4. **Tools → MCP servers:** add GitHub (`https://api.githubcopilot.com/mcp/`) with a fine-grained token; allow only the 4 PR tools.
 
 ## Development
 
 ```bash
 pip install -e ".[dev]" && pytest -q      # unit tests + offline end-to-end runs (mock gateway)
-otari-guard bench demo/cases --mock      # benchmark harness offline
+otari-guard bench demo/cases --mock
 ```
+
+Also: [FEEDBACK_LOG.md](FEEDBACK_LOG.md) (Otari friction found while building, with repros) · [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) · [CHECKLIST.md](CHECKLIST.md)
 
 License: Apache-2.0

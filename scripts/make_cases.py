@@ -308,7 +308,9 @@ CASES = {
         "explanation": "Copy the input dict before adding quantities."}),
 }
 
-GUARD = Path(__file__).resolve().parent.parent / "templates" / "guardrails.yml"
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from otari_guard.guardrails import install_guardrails  # noqa: E402
 
 for name, c in CASES.items():
     base = ROOT / name
@@ -319,7 +321,6 @@ for name, c in CASES.items():
     (base / ".mock_fix.json").write_text(json.dumps(c["meta"], indent=2) + "\n")
     if c.get("adversarial"):
         (base / ".adversarial").write_text("bench runs this case with --adversarial\n")
-    (base / ".otari").mkdir(exist_ok=True)
-    (base / ".otari" / "guardrails.yml").write_text(GUARD.read_text())
+    install_guardrails(base, force=True)
     (base / ".otari-guard.yml").write_text("budget_usd: 0.30\nmax_attempts: 2\n")
     print("wrote", name)

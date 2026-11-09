@@ -164,13 +164,6 @@ class OtariClient:
     def key_usage(self) -> dict:
         return self._get("/key/usage/summary")
 
-    def explain_policy(self, name: str | None = None, spec: dict | None = None,
-                       budget_used_pct: float | None = None) -> dict:
-        body: dict[str, Any] = {"name": name, "spec": spec}
-        if budget_used_pct is not None:
-            body["budget_used_pct"] = budget_used_pct
-        return self._post("/routing/policies/explain", {k: v for k, v in body.items() if v is not None}).json()
-
     # ------------------------------------------------------------------ chat
     def chat(self, role: str, messages: list[dict], *, model: str | None = None,
              tools: list[dict] | None = None, guardrails: list[dict] | None = None,

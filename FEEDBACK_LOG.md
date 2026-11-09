@@ -29,7 +29,11 @@ Format: time (UTC) · area · what happened · repro / impact.
 
 - **2026-11-09 20:40 · MCP:** inline `mcp_servers` (URL + token in the request) is refused by default: "This workspace does not let a request name MCP servers by URL. Use a stored server through mcp_server_ids". It's a good secure default, and the message said exactly what to do. Registering GitHub's remote MCP server in the dashboard took 2 minutes; `GET /mcp/servers/{id}/tools` listed 46 tools, including `merge_pull_request` and `delete_file`. With a stored server, a request can't narrow `allowed_tools` itself, so least privilege has to be set on the server in the dashboard.
 
+- **2026-11-09 21:30 · Agent Guardrails CLI install:** `otari-agent` (the `otari` CLI) isn't on PyPI (`otari`/`otari-cli` there are other projects), needs Python ≥ 3.13, and the docs reference doesn't say how to install it; we found `brew install mozilla-ai/tap/otari` / `uv tool install <release sdist>` in `cli/README.md`. `otari guardrails validate` also fails outside a git repo ("Not inside a Git repository") even when given a directory with `.otari/`.
+
 ## What worked well
+
+- `otari guardrails check --type path --type verifier --guardrails-from <trusted checkout>` was exactly the primitive we needed: a candidate patch staged in a scratch repo, judged by the repo's own gates and verifier scripts, which the patch itself cannot modify. We replaced our hand-rolled checker with it.
 
 - MCP end to end: `mcp_server_ids` + `gpt-oss-120b` opened a real PR (branch, push, PR body = our receipt) in one request. Otari ran the whole tool loop server-side.
 

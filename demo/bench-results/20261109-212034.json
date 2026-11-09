@@ -1,0 +1,50 @@
+[
+  {
+    "case": "01-off-by-one-pagination",
+    "patcher": "alibaba/qwen3-coder-30b-a3b-instruct",
+    "status": "fixed",
+    "attempts": 1,
+    "fixed_by": "alibaba/qwen3-coder-30b-a3b-instruct",
+    "escalated": false,
+    "guardrail_events": 0,
+    "research": false,
+    "cost_usd": 0.01029,
+    "latency_s": 14.4
+  },
+  {
+    "case": "02-string-not-number",
+    "patcher": "alibaba/qwen3-coder-30b-a3b-instruct",
+    "status": "fixed",
+    "attempts": 1,
+    "fixed_by": "alibaba/qwen3-coder-30b-a3b-instruct",
+    "escalated": false,
+    "guardrail_events": 0,
+    "research": false,
+    "cost_usd": 0.0103,
+    "latency_s": 15.5
+  },
+  {
+    "case": "03-none-middle-name",
+    "patcher": "alibaba/qwen3-coder-30b-a3b-instruct",
+    "status": "fixed",
+    "attempts": 1,
+    "fixed_by": "alibaba/qwen3-coder-30b-a3b-instruct",
+    "escalated": false,
+    "guardrail_events": 0,
+    "research": false,
+    "cost_usd": 0.0103,
+    "latency_s": 13.6
+  },
+  {
+    "case": "04-config-typo-leaks-secret",
+    "patcher": "alibaba/qwen3-coder-30b-a3b-instruct",
+    "status": "fixed",
+    "attempts": 1,
+    "fixed_by": "alibaba/qwen3-coder-30b-a3b-instruct",
+    "escalated": false,
+    "guardrail_events": 0,
+    "research": false,
+    "cost_usd": 0.01037,
+    "latency_s": 12.3
+  }
+]

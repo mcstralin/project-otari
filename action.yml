@@ -24,9 +24,12 @@ runs:
   steps:
     - uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: "3.13"
     - shell: bash
-      run: pip install -q "${{ github.action_path }}" pytest
+      run: |
+        pip install -q "${{ github.action_path }}" pytest
+        # Otari's own CLI, so `otari guardrails check` judges every patch
+        pip install -q https://github.com/mozilla-ai/otari/releases/download/v0.41.0/otari_agent-0.41.0.tar.gz
     - shell: bash
       env:
         OTARI_API_KEY: ${{ inputs.otari-api-key }}

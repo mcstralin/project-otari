@@ -5,7 +5,7 @@ import pytest
 
 from otari_guard.agent import Agent, make_diff, parse_json
 from otari_guard.config import load_config
-from otari_guard.guardrails import check_patch
+from otari_guard.guardrails import _builtin, check_patch, install_guardrails, otari_cli_available
 from otari_guard.mock import MockClient
 from otari_guard.redact import redact
 from otari_guard.sandbox import MARK, build_program, parse_output
@@ -29,23 +29,37 @@ def test_parse_json_recovers_fenced_and_prose():
         parse_json("no json here")
 
 
-def test_guardrails_block_cheats(tmp_path):
+def test_builtin_guardrails_block_cheats(tmp_path):
     (tmp_path / ".otari").mkdir()
     (tmp_path / ".otari" / "guardrails.yml").write_text(
         "gates:\n  - id: no-ci\n    type: path\n    enforcement: required\n    forbidden: ['.github/**']\n")
     original = {"tests/test_a.py": "def test_a():\n    assert f() == 1\n\ndef test_b():\n    assert g()\n",
                 "src.py": "def f():\n    return 2\n"}
-    rep = check_patch(tmp_path, original, {"tests/test_a.py": "def test_a():\n    assert f() == 1\n"}, [])
+    rep = _builtin(tmp_path, original, {"tests/test_a.py": "def test_a():\n    assert f() == 1\n"}, [])
     assert rep.blocked and any(v.gate == "no-test-deletion" for v in rep.violations)
-    rep = check_patch(tmp_path, original, {".github/workflows/ci.yml": "on: push"}, [])
+    rep = _builtin(tmp_path, original, {".github/workflows/ci.yml": "on: push"}, [])
     assert rep.blocked and any(v.gate == "no-ci" for v in rep.violations)
-    rep = check_patch(tmp_path, original, {"src.py": "import os\ndef f():\n    return len(os.environ)\n"}, [])
+    rep = _builtin(tmp_path, original, {"src.py": "import os\ndef f():\n    return len(os.environ)\n"}, [])
     assert rep.blocked and any(v.gate == "no-exfiltration" for v in rep.violations)
-    rep = check_patch(tmp_path, original, {"tests/test_a.py": original["tests/test_a.py"].replace(
+    rep = _builtin(tmp_path, original, {"tests/test_a.py": original["tests/test_a.py"].replace(
         "def test_b", "@pytest.mark.skip\ndef test_b")}, [])
     assert rep.blocked and any(v.gate == "no-new-skips" for v in rep.violations)
-    rep = check_patch(tmp_path, original, {"src.py": "def f():\n    return 1\n"}, [])
+    rep = _builtin(tmp_path, original, {"src.py": "def f():\n    return 1\n"}, [])
     assert not rep.blocked
+
+
+@pytest.mark.skipif(not otari_cli_available(), reason="otari CLI (otari-agent) not installed")
+def test_otari_cli_guardrails_block_cheats(tmp_path):
+    install_guardrails(tmp_path)
+    original = {"tests/test_a.py": "def test_a():\n    assert f() == 1\n\ndef test_b():\n    assert g()\n",
+                "src.py": "def f():\n    return 2\n"}
+    ok = check_patch(tmp_path, original, {"src.py": "def f():\n    return 1\n"}, [])
+    assert ok.engine == "otari" and not ok.blocked
+    for changes, gate in [({"tests/test_a.py": None}, "tests-not-weakened"),
+                          ({"src.py": "import os\nK = os.environ\n"}, "no-exfiltration"),
+                          ({".github/workflows/ci.yml": "on: push\n"}, "no-ci-edits")]:
+        rep = check_patch(tmp_path, original, changes, [])
+        assert rep.blocked and any(v.gate == gate for v in rep.violations), (gate, rep.raw)
 
 
 def test_sandbox_program_runs_locally(tmp_path):

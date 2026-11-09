@@ -16,11 +16,11 @@ from rich.table import Table
 
 from . import __version__
 from .config import CONFIG_FILE, DEFAULT_CONFIG_YAML, ROLE_DESCRIPTIONS, load_config
-from .guardrails import DEFAULT_GUARDRAILS_YML
+from .guardrails import install_guardrails
 
 console = Console()
 
-POLICY_HINT = Path(__file__).resolve().parent.parent / "policies" / "routing.yml"
+POLICY_HINT = Path(__file__).resolve().parent.parent / "policies" / "guard-patcher.md"
 
 
 def apply_user(cfg, name: str) -> None:
@@ -48,11 +48,7 @@ def cmd_init(args) -> int:
     if not cfg_path.exists() or args.force:
         cfg_path.write_text(DEFAULT_CONFIG_YAML, encoding="utf-8")
         wrote.append(CONFIG_FILE)
-    g = repo / ".otari" / "guardrails.yml"
-    if not g.exists() or args.force:
-        g.parent.mkdir(parents=True, exist_ok=True)
-        g.write_text(DEFAULT_GUARDRAILS_YML, encoding="utf-8")
-        wrote.append(".otari/guardrails.yml")
+    wrote += install_guardrails(repo, force=args.force)
     env_example = repo / ".env.example"
     if not env_example.exists():
         env_example.write_text("OTARI_API_KEY=otk_...\nOTARI_BASE_URL=https://api.otari.ai/api/v1\nGITHUB_TOKEN=\n",
@@ -63,8 +59,13 @@ def cmd_init(args) -> int:
         title="otari-guard init"))
     console.print("Next: put your key in [bold].env[/] → [bold]otari-guard doctor[/] → [bold]otari-guard fix[/]")
     if POLICY_HINT.is_file():
-        console.print("\n[bold]Optional:[/] server-side failover + budget-aware routing. "
-                      f"Create these policies in the Otari dashboard (Routing):\n[grey62]{POLICY_HINT}[/]")
+        console.print("\n[bold]Optional:[/] server-side failover + budget tier-down: create a routing policy "
+                      f"in the Otari dashboard (Routing → Policies), as described in:\n[grey62]{POLICY_HINT}[/]")
+    from .guardrails import otari_cli_available
+    if not otari_cli_available():
+        console.print("\n[yellow]Tip:[/] install Otari's CLI so `otari guardrails check` judges every patch "
+                      "(needs Python 3.13):\n  uv tool install --python 3.13 "
+                      "https://github.com/mozilla-ai/otari/releases/download/v0.41.0/otari_agent-0.41.0.tar.gz")
     return 0
 
 
@@ -130,6 +131,9 @@ def cmd_doctor(args) -> int:
         row("sandbox (code/execute)", False, f"funds/budget: {e}")
     except OtariError as e:
         row("sandbox (code/execute)", False, e)
+    from .guardrails import otari_cli_available
+    row("guardrails engine", True if otari_cli_available() else None,
+        "otari guardrails check (Otari CLI)" if otari_cli_available() else "built-in fallback: install the otari CLI")
     console.print(t)
     return 0
 
@@ -261,13 +265,13 @@ def cmd_explain(args) -> int:
         t.add_row(role, desc, target + (" [policy]" if role in cfg.policies else ""),
                   f"${p[0]}/${p[1]}" if p else "-")
     console.print(t)
-    for role, pol in cfg.policies.items():
-        try:
-            from .otari_client import OtariClient
-            plan = OtariClient(cfg).explain_policy(name=pol, budget_used_pct=args.budget_used_pct)
-            console.print(Panel(json.dumps(plan, indent=2)[:3000], title=f"routing explain · {pol}"))
-        except Exception as e:
-            console.print(f"[yellow]explain {pol}: {e}[/]")
+    if cfg.policies:
+        console.print("[bold]Routing policies in use:[/] " + ", ".join(f"{r} → {p}" for r, p in cfg.policies.items())
+                      + "  (fallbacks + tier-down are defined in the Otari dashboard)")
+    from .guardrails import load_gates, otari_cli_available
+    gates = load_gates(repo)
+    console.print(f"[bold]Guardrails:[/] {len(gates)} gate(s) in .otari/ · engine: "
+                  + ("otari guardrails check" if otari_cli_available() else "built-in (install otari CLI for Otari's)"))
     return 0
 
 
@@ -306,9 +310,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--yes", action="store_true", help="skip the PR approval prompt")
     p.set_defaults(fn=cmd_fix)
 
-    p = sub.add_parser("explain", help="show model roles, prices and routing plans")
+    p = sub.add_parser("explain", help="show model roles, prices, routing policies and guardrails")
     p.add_argument("path", nargs="?", default=".")
-    p.add_argument("--budget-used-pct", type=float)
     p.add_argument("--offline", action="store_true")
     p.set_defaults(fn=cmd_explain)
 

@@ -210,12 +210,14 @@ class Agent:
                     msg = "; ".join(v.message for v in guard.violations if v.enforcement == "required")
                     att.guard = f"BLOCKED: {msg}"
                     r.guardrail_events.append(f"Patch guardrail rejected attempt {tier}#{n}: {msg}")
-                    self.emit("guard", "block", "Guardrail rejected the patch", msg)
+                    self.emit("guard", "block", "Guardrail rejected the patch"
+                              + (" (otari guardrails check)" if guard.engine == "otari" else ""), msg)
                     feedback = (f"Your patch was REJECTED by repository guardrails: {msg}. "
                                 "Fix the source code instead; tests and CI config are off-limits.")
                     continue
                 att.guard = "passed" + (f" ({len(guard.violations)} advisory)" if guard.violations else "")
-                self.emit("guard", "ok", f"Guardrails passed ({len(guard.gates_checked)} gates)",
+                engine = "otari guardrails check" if guard.engine == "otari" else "built-in gates"
+                self.emit("guard", "ok", f"Guardrails passed: {engine} ({len(guard.gates_checked)} gates)",
                           ", ".join(guard.gates_checked))
                 outcome = self._verify(changes)
                 att.sandbox = _last_line(outcome.output)

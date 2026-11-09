@@ -11,7 +11,7 @@ from pathlib import Path
 
 SKIP_DIRS = {".git", ".venv", "venv", "env", "__pycache__", "node_modules", ".pytest_cache",
              ".mypy_cache", "dist", "build", ".otari-guard-runs", ".tox", ".idea", ".vscode",
-             ".mock_fix"}
+             ".mock_fix", ".otari"}   # .otari = guardrails: never shown to models, never shipped
 TEXT_EXT = {".py", ".txt", ".md", ".cfg", ".toml", ".ini", ".json", ".yml", ".yaml", ".csv"}
 MAX_FILE_BYTES = 120_000
 MAX_TOTAL_BYTES = 600_000

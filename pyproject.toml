@@ -25,5 +25,8 @@ otari-guard = "otari_guard.cli:main"
 [tool.setuptools.packages.find]
 include = ["otari_guard*"]
 
+[tool.setuptools.package-data]
+otari_guard = ["templates/otari/*.yml", "templates/otari/verifiers/*.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
