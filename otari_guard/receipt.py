@@ -22,7 +22,9 @@ STATUS_LINE = {
 def model_table(calls: list) -> list[dict]:
     agg: dict[tuple, dict] = defaultdict(lambda: {"calls": 0, "tokens": 0, "cost": 0.0, "request_ids": []})
     for c in calls:
-        row = agg[(c.role, c.resolved_model or c.model)]
+        is_policy = "/" not in c.model and ":" not in c.model
+        label = f"{c.model} → {c.resolved_model}" if is_policy and c.resolved_model else c.model
+        row = agg[(c.role, label)]
         row["calls"] += 1
         row["tokens"] += c.prompt_tokens + c.completion_tokens
         row["cost"] += c.cost_usd
@@ -43,6 +45,15 @@ def render_markdown(cfg: Config, res: RunResult, calls: list, spent: float,
         L.append(f"**Fix ({fixed[-1].model}):** {fixed[-1].explanation}\n")
     if res.error:
         L.append(f"**Stopped because:** `{res.error}`\n")
+    if res.status == "budget_stopped":
+        L.append("### Diagnosis (no PR opened)")
+        L.append(f"- Failure: `{_last(res.failing_before)}`")
+        if res.summary:
+            L.append(f"- Likely cause: {res.summary}")
+        files = res.triage.get("files_to_change") if res.triage else None
+        if files:
+            L.append(f"- Files to look at: {', '.join(f'`{f}`' for f in files)}")
+        L.append("- Next step: raise this developer's Otari budget, or fix by hand using the notes above.\n")
 
     L.append("### Tests")
     L.append(f"- Before: `{_last(res.failing_before)}`")
@@ -78,6 +89,12 @@ def render_markdown(cfg: Config, res: RunResult, calls: list, spent: float,
     if not res.guardrail_events:
         L.append("- No guardrail interventions")
     L.append("")
+
+    if res.routing_events:
+        L.append("### Routing (Otari policies)")
+        for e in dict.fromkeys(res.routing_events):
+            L.append(f"- {e}")
+        L.append("")
 
     L.append("### Models & cost (all open-weight, via Otari)")
     exact = sum(1 for c in calls if "billed" in (c.note or ""))

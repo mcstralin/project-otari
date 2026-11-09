@@ -48,6 +48,9 @@ class CallRecord:
     latency_s: float = 0.0
     kind: str = "chat"            # chat | sandbox
     resolved_model: str | None = None
+    provider: str | None = None        # otari-provider header
+    attempts: int = 1                  # otari-attempt-count header
+    fallback: bool = False             # otari-fallback header
     tools: list[str] = field(default_factory=list)
     ok: bool = True
     note: str = ""
@@ -179,6 +182,8 @@ class OtariClient:
         if mcp_servers:
             extra["mcp_servers"] = mcp_servers
         tags = {"app": "otari-guard", "role": role}
+        if self.cfg.user:
+            tags["developer"] = self.cfg.user
         tags.update(metadata or {})
         extra["metadata"] = {k: str(v)[:512] for k, v in tags.items()}
         kwargs: dict[str, Any] = {"model": model, "messages": messages, "extra_body": extra}
@@ -190,8 +195,8 @@ class OtariClient:
             kwargs["max_tokens"] = max_tokens
         if temperature is not None:
             kwargs["temperature"] = temperature
-        if self.cfg.user:
-            kwargs["user"] = self.cfg.user  # per-user budgets / attribution
+        if self.cfg.end_user:
+            kwargs["user"] = self.cfg.end_user  # end-user budget on this key
 
         from openai import APIStatusError
 
@@ -222,14 +227,17 @@ class OtariClient:
         usage = resp.usage
         pt = getattr(usage, "prompt_tokens", 0) or 0
         ct = getattr(usage, "completion_tokens", 0) or 0
-        resolved = getattr(resp, "model", None) or model
+        resolved = raw.headers.get("otari-model") or getattr(resp, "model", None) or model
         search_surcharge = sum(self.SEARCH_EST_USD * int(t.get("max_uses") or 1)
                                for t in tools or [] if t.get("type") == "otari_web_search")
         rec = CallRecord(
             role=role, model=model, request_id=rid, prompt_tokens=pt, completion_tokens=ct,
-            cost_usd=self.estimate(resolved if resolved in self.pricing() else model, pt, ct) + search_surcharge,
+            cost_usd=self.estimate(model if model in self.pricing() else resolved, pt, ct) + search_surcharge,
             latency_s=time.time() - t0, resolved_model=resolved,
             tools=[t.get("type", "") for t in tools or []],
+            provider=raw.headers.get("otari-provider"),
+            attempts=int(raw.headers.get("otari-attempt-count") or 1),
+            fallback=(raw.headers.get("otari-fallback") or "").lower() == "true",
         )
         self.calls.append(rec)
         content = resp.choices[0].message.content or ""
@@ -241,8 +249,8 @@ class OtariClient:
         before any agent model reads it."""
         self._check_local_budget()
         body: dict[str, Any] = {"url": url, "max_chars": max_chars}
-        if self.cfg.user:
-            body["user"] = self.cfg.user
+        if self.cfg.end_user:
+            body["user"] = self.cfg.end_user
         t0 = time.time()
         try:
             r = self._post("/fetch", body)
@@ -265,8 +273,8 @@ class OtariClient:
             body["container"] = container
         if timeout_s:
             body["timeout_seconds"] = timeout_s
-        if self.cfg.user:
-            body["user"] = self.cfg.user
+        if self.cfg.end_user:
+            body["user"] = self.cfg.end_user
         t0 = time.time()
         try:
             r = self._post("/code/execute", body)

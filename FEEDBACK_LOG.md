@@ -23,7 +23,13 @@ Format: time (UTC) · area · what happened · repro / impact.
 - **2026-11-09 17:00 · fetch + reasoning:** after we quarantined a poisoned page and offered only `otari_web_search`, `gpt-oss-120b` returned empty `content` twice (tool loop ended without a final answer). Worked around by skipping research when the only source is compromised.
 - **2026-11-09 16:50 · the model was smarter than our guardrail design:** `gpt-oss-120b` read the poisoned changelog via `otari_web_fetch` and silently ignored the injected instructions, so a guardrail placed on its *summary* never fired. We now fetch linked pages with `POST /api/v1/fetch` and screen the raw text first. Otari could expose fetched tool results in the response (or run an inference guardrail on `rag_context`) so apps can audit what the model read.
 
+- **2026-11-09 19:31 · routing policy (worked, with a twist):** `guard-patcher` (Qwen3-Coder-30B on Bedrock → Devstral-2 on Bedrock → Qwen3-Coder-480B-Turbo on DeepInfra) answered on the 3rd backup: both Bedrock targets rejected `response_format`, and Otari treated that as a failure and fell through. It's great that it was absorbed with no code change. But a request-shape error ("parameter not supported by this provider") burns two attempts every time; the gateway could skip providers that can't take the request's parameters.
+
+- **2026-11-09 20:05 · guardrails on hosted (biggest gap):** the policy page offers "Add a guardrail" with profile `prompt-injection`, but hosted Otari has no guardrails service. Repro: `POST /chat/completions` with `"guardrails":[{"profile":"prompt-injection","mode":"block","on_unavailable":"monitor"}]` → served, with header `otari-guardrails: [{"status":"unavailable","reason":"not_configured"}]`; with `on_unavailable:"block"` → `"guardrail profile 'prompt-injection' requested but no guardrails service is configured. Set OTARI_GUARDRAILS_URL…"`. The dashboard lets you save a block/block guardrail on a policy, which would refuse **every** request through it, with no warning that the service is missing. Wanted: a hosted prompt-injection profile backed by an open-weight model (e.g. gpt-oss-safeguard), or at least a disabled state in the UI. We built this ourselves (safeguard step + Agent Guardrails gates).
+
 ## What worked well
+
+- Routing policy created in the dashboard in ~2 minutes; response headers `otari-model`, `otari-provider`, `otari-attempt-count`, `otari-fallback` made it trivial to show routing decisions in our receipts.
 
 - `GET /api/v1/usage/requests/{request_id}` returns the **exact billed cost** per request: receipts are now exact, not estimates.
 - `POST /api/v1/fetch` (direct fetch, no model in the loop) made zero-trust research possible: fetch → screen raw → then let a model read it.

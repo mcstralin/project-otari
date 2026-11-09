@@ -23,6 +23,15 @@ console = Console()
 POLICY_HINT = Path(__file__).resolve().parent.parent / "policies" / "routing.yml"
 
 
+def apply_user(cfg, name: str) -> None:
+    """Run as a named developer: their own Otari key (OTARI_API_KEY_<NAME>) and budget."""
+    import os
+    key = os.environ.get(f"OTARI_API_KEY_{name.upper()}")
+    if not key:
+        raise SystemExit(f"OTARI_API_KEY_{name.upper()} is not set (add it to .env)")
+    cfg.api_key, cfg.user = key, name
+
+
 def make_client(cfg, repo: Path):
     if cfg.mock:
         from .mock import MockClient
@@ -134,10 +143,23 @@ def cmd_fix(args) -> int:
     repo = Path(args.path).resolve()
     cfg = load_config(repo, {"budget_usd": args.budget, "max_attempts": args.max_attempts,
                              "mock": args.mock or None, "research": False if args.no_research else None})
+    if args.as_user:
+        apply_user(cfg, args.as_user)
     client = make_client(cfg, repo)
+    key_info = ""
+    if not cfg.mock:
+        try:
+            kb = client.key_budget()
+            lim = (kb.get("limits") or [{}])[0]
+            if kb.get("remaining_usd") is not None:
+                key_info = (f" · Otari key budget [bold]${kb['remaining_usd']:.4f}[/] left"
+                            + (f" of ${lim.get('limit_usd'):.2f}" if lim.get("limit_usd") is not None else ""))
+        except Exception:
+            pass
     log = Path(args.log).read_text(encoding="utf-8") if args.log else None
     console.print(f"[bold]Otari-Guard {__version__}[/] · repo [cyan]{repo.name}[/] · gateway "
-                  f"[cyan]{'MOCK' if cfg.mock else cfg.base_url}[/] · budget [bold]${cfg.budget_usd:.2f}[/]")
+                  f"[cyan]{'MOCK' if cfg.mock else cfg.base_url}[/] · run cap [bold]${cfg.budget_usd:.2f}[/]"
+                  + (f" · user [magenta]{cfg.user}[/]" if cfg.user else "") + key_info)
     with TimelineUI(console, client, cfg.budget_usd, repo.name) as ui:
         agent = Agent(cfg, client, repo, ui.on_event, adversarial=args.adversarial, failing_log=log)
         res = agent.run()
@@ -259,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mock", action="store_true", help="offline mock gateway (no credit needed)")
     p.add_argument("--no-research", action="store_true", help="disable web search/fetch")
     p.add_argument("--adversarial", action="store_true", help="pressure the patcher to cheat (guardrail demo)")
+    p.add_argument("--as", dest="as_user", help="run as a developer with their own key/budget (OTARI_API_KEY_<NAME>)")
     p.add_argument("--apply", action="store_true", help="write the fix to the working tree")
     p.add_argument("--pr", action="store_true", help="open a pull request (asks for approval)")
     p.add_argument("--pr-via", choices=["auto", "mcp", "rest"], default="auto")

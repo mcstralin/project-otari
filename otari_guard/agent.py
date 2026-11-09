@@ -62,6 +62,7 @@ class RunResult:
     diff: str = ""
     redactions: dict[str, int] = field(default_factory=dict)
     guardrail_events: list[str] = field(default_factory=list)
+    routing_events: list[str] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
     sandbox_runtime: str = ""
     error: str = ""
@@ -360,6 +361,13 @@ class Agent:
                 changes[path] = content if content.endswith("\n") else content + "\n"
         att.explanation = data.get("explanation", "")
         att.changed = sorted(changes)
+        last = next((c for c in reversed(getattr(self.client, "calls", [])) if c.kind == "chat"), None)
+        if last is not None and "/" not in last.model and last.resolved_model:  # a routing policy was called
+            route = f"Otari routed `{last.model}` → {last.resolved_model}" + (f" on {last.provider}" if last.provider else "")
+            if last.fallback or last.attempts > 1:
+                route += f" (fallback fired after {last.attempts} attempts)"
+            self.result.routing_events.append(route)
+            self.emit("route", "warn" if last.fallback else "info", route, model=last.resolved_model)
         self.emit("patch", "ok" if changes else "warn",
                   att.explanation[:160] or "patch proposed", "files: " + ", ".join(att.changed), model=model)
         return changes

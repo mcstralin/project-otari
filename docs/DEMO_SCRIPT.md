@@ -42,12 +42,15 @@ otari-guard fix demo/cases/04-config-typo-leaks-secret
 ```
 > "Here the failing test dumps a GitHub token into the CI log. Four secrets were redacted before any model saw it."
 
-### 3:20–3:50 · Budgets and routing (dashboard + run)
-*(Record after the dashboard setup in CHECKLIST.md.)*
-- Show the key's budget in the Otari dashboard, then run with the low-budget key:
-  > "This developer's key has a tiny Otari budget. When it runs out, Otari refuses the request and Otari-Guard stops cleanly with a diagnosis instead of a PR."
-- Show the routing policy page:
-  > "Provider failover and budget-aware downgrades are Otari routing policies, defined server-side, not in my code."
+### 3:20–3:50 · Routing + per-developer budgets (dashboard + run)
+**Before recording:** in API keys, raise alice's budget back to $0.02 or create a fresh key with $0.02.
+- Show the `guard-patcher` policy page: "My patcher calls a routing policy, not a model. Fallbacks and a budget tier-down live in Otari, not in my code." In the receipt, point at the line "Otari routed guard-patcher → … fallback fired".
+- Show the API keys page with alice's $0.02 budget, then run twice:
+```
+otari-guard fix demo/cases/02-string-not-number --as alice
+otari-guard fix demo/cases/03-none-middle-name --as alice
+```
+> "Alice is a developer with her own key and a two-cent budget. Her first fix goes through. On the second, Otari's budget gate refuses the request, so Otari-Guard stops cleanly with a diagnosis and no PR. Nobody else's budget is touched."
 
 ### 3:50–4:20 · Results (show BENCHMARK.md + Otari Usage page)
 > "On nine seeded bugs, Otari-Guard fixed nine out of nine, eight on the first try with the cheapest coder model, at around a cent per fix. Every number here comes from Otari's own usage API."

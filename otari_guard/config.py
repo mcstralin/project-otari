@@ -65,7 +65,8 @@ class Config:
     research_max_uses: int = 2        # Otari max_uses for search per request
     safeguard: bool = True            # run injection judge on fetched content
     inference_guardrails: list[dict] = field(default_factory=list)  # Otari request guardrails
-    user: str | None = None           # end-user id for per-user budgets
+    user: str | None = None           # developer label (cost attribution tag); identity = the API key
+    end_user: str | None = None       # sent as `user` only for keys configured with end-user budgets
     sandbox_timeout_s: int = 60
     test_command: str = "pytest -q"
     protected_paths: list[str] = field(default_factory=lambda: [".github/**", ".otari/**"])
@@ -95,6 +96,12 @@ def load_config(repo: Path, overrides: dict | None = None) -> Config:
     cfg.api_key = os.environ.get("OTARI_API_KEY") or cfg.api_key
     cfg.github_token = os.environ.get("GITHUB_TOKEN") or cfg.github_token
     cfg.github_repo = os.environ.get("GITHUB_REPOSITORY") or cfg.github_repo
+    # e.g. OTARI_GUARD_POLICIES="patcher=guard-patcher,reviewer=guard-reviewer"
+    for pair in filter(None, os.environ.get("OTARI_GUARD_POLICIES", "").split(",")):
+        role, _, pol = pair.partition("=")
+        if role.strip() and pol.strip():
+            cfg.policies[role.strip()] = pol.strip()
+    cfg.end_user = os.environ.get("OTARI_GUARD_END_USER") or cfg.end_user
     cfg.user = os.environ.get("OTARI_GUARD_USER") or os.environ.get("GITHUB_ACTOR") or cfg.user
     for key, value in (overrides or {}).items():
         if value is not None:
