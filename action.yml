@@ -1,0 +1,39 @@
+name: Otari-Guard
+description: Self-healing CI on open-weight models via Otari. Proves the fix in a sandbox and opens a PR with a receipt.
+branding:
+  icon: shield
+  color: green
+inputs:
+  otari-api-key:
+    description: Otari API key (store as a secret). Scope it with a budget in the Otari dashboard.
+    required: true
+  otari-base-url:
+    description: Otari gateway URL (hosted or self-hosted)
+    default: https://api.otari.ai/api/v1
+  budget:
+    description: USD cap for this run
+    default: "0.25"
+  path:
+    description: Repository path to repair
+    default: "."
+  open-pr:
+    description: Open a pull request with the fix
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - shell: bash
+      run: pip install -q "${{ github.action_path }}" pytest
+    - shell: bash
+      env:
+        OTARI_API_KEY: ${{ inputs.otari-api-key }}
+        OTARI_BASE_URL: ${{ inputs.otari-base-url }}
+        GITHUB_TOKEN: ${{ github.token }}
+        OTARI_GUARD_USER: ${{ github.actor }}
+      run: |
+        ARGS="--budget ${{ inputs.budget }}"
+        if [ "${{ inputs.open-pr }}" = "true" ]; then ARGS="$ARGS --pr --pr-via rest --yes"; fi
+        otari-guard fix "${{ inputs.path }}" $ARGS

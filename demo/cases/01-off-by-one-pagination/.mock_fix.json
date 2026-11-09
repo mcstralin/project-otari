@@ -1,0 +1,4 @@
+{
+  "summary": "paginate() treats pages as 0-indexed, so page 1 skips the first items.",
+  "explanation": "Pages are 1-indexed: start must be (page - 1) * size."
+}

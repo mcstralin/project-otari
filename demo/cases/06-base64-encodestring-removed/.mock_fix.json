@@ -1,0 +1,12 @@
+{
+  "summary": "base64.encodestring/decodestring were removed in Python 3.9.",
+  "category": "external_api_change",
+  "needs_research": true,
+  "search_query": "base64.encodestring removed python 3.9 replacement",
+  "findings": "Python 3.9 removed base64.encodestring/decodestring; use encodebytes/decodebytes.",
+  "fix_hint": "base64.encodebytes / base64.decodebytes",
+  "sources": [
+    "https://docs.python.org/3/whatsnew/3.9.html"
+  ],
+  "explanation": "Use base64.encodebytes/decodebytes."
+}

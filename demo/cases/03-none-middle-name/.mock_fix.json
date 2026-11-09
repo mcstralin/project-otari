@@ -1,0 +1,4 @@
+{
+  "summary": "full_name joins None when the middle name is missing.",
+  "explanation": "Skip empty name parts before joining."
+}

@@ -1,0 +1,4 @@
+{
+  "summary": "load() reads the misspelled key 'timout', so every config is rejected.",
+  "explanation": "Fix the key typo: 'timout' -> 'timeout'."
+}

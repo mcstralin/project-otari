@@ -1,0 +1,4 @@
+{
+  "summary": "median() ignores even-length lists (should average the two middle values).",
+  "explanation": "Average the two middle values for even-length input."
+}

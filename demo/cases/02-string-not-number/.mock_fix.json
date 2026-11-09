@@ -1,0 +1,4 @@
+{
+  "summary": "parse_price returns a string, so prices are never converted to numbers.",
+  "explanation": "Convert the stripped price string to float."
+}

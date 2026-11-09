@@ -1,0 +1,4 @@
+{
+  "summary": "restock() mutates the caller's dict instead of returning a copy.",
+  "explanation": "Copy the input dict before adding quantities."
+}

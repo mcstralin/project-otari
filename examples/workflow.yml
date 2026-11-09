@@ -1,0 +1,19 @@
+# .github/workflows/otari-guard.yml - repair CI automatically when tests fail.
+name: tests
+on: [push, pull_request]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install pytest && pytest -q
+      - if: failure()
+        uses: mcstralin/project-otari@devs-wilding
+        with:
+          otari-api-key: ${{ secrets.OTARI_API_KEY }}
+          budget: "0.25"
