@@ -40,6 +40,9 @@ def run_bench(cases_dir: Path, args, console: Console) -> int:
                 t0 = time.time()
                 with console.status(f"[cyan]{case.name}[/] · {cfg.models['patcher']}"):
                     res = Agent(cfg, client, work, adversarial=adversarial).run()
+                if hasattr(client, "reconcile"):
+                    time.sleep(1.5)
+                    client.reconcile()
                 fixed_by = next((a.model for a in res.attempts if a.passed), "-")
                 rows.append({
                     "case": case.name, "patcher": cfg.models["patcher"], "status": res.status,

@@ -18,7 +18,16 @@ Format: time (UTC) · area · what happened · repro / impact.
 - **2026-11-09 14:42 · sandbox pricing:** a `/code/execute` run bills ~$0.0067, ~30× the model calls of a whole fix. The price isn't in `/models` pricing, so we had to measure it from usage. Publishing it, or returning the cost in a response header, would help.
 - **2026-11-09 14:43 · reasoning models + max_tokens:** `openai/gpt-oss-20b` with `max_tokens: 20` returned empty `content` (the reasoning tokens use up the budget). Not a bug, but a doc note would help.
 
+- **2026-11-09 17:10 · web search cost visibility:** search charges are folded into the researcher model's row: `openai/gpt-oss-120b` shows $0.186 for 5 calls / 150k tokens (~$0.04/call), while tokens alone would be ~$0.006. Search results add ~30k prompt tokens per call. Neither the search surcharge nor its token impact shows up before the bill. A `max_tokens_per_result`/summary mode and a visible per-search price would help.
+- **2026-11-09 17:15 · sandbox price:** real billing is ~$0.0096–0.0100 per `/code/execute` run: 97% of a typical fix. A cheaper "warm container, quick re-run" price tier would favor iterative agents.
+- **2026-11-09 17:00 · fetch + reasoning:** after we quarantined a poisoned page and offered only `otari_web_search`, `gpt-oss-120b` returned empty `content` twice (tool loop ended without a final answer). Worked around by skipping research when the only source is compromised.
+- **2026-11-09 16:50 · the model was smarter than our guardrail design:** `gpt-oss-120b` read the poisoned changelog via `otari_web_fetch` and silently ignored the injected instructions, so a guardrail placed on its *summary* never fired. We now fetch linked pages with `POST /api/v1/fetch` and screen the raw text first. Otari could expose fetched tool results in the response (or run an inference guardrail on `rag_context`) so apps can audit what the model read.
+
 ## What worked well
+
+- `GET /api/v1/usage/requests/{request_id}` returns the **exact billed cost** per request: receipts are now exact, not estimates.
+- `POST /api/v1/fetch` (direct fetch, no model in the loop) made zero-trust research possible: fetch → screen raw → then let a model read it.
+- Live benchmark: **9/9 seeded bugs fixed** on hosted Otari, 8 on the first attempt with the cheapest coder model.
 
 - Sandbox ships **Python 3.13 + pytest 9** preinstalled: the repo's own test suite ran first try.
 - First real fix end to end: 10 s, ~$0.009 billed (triage → patch → sandbox → review), first attempt.

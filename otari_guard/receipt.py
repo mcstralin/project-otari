@@ -62,6 +62,8 @@ def render_markdown(cfg: Config, res: RunResult, calls: list, spent: float,
         L.append("### Research (Otari web search / fetch)")
         if res.research.get("quarantined"):
             L.append("> ⚠️ Quarantined by the safeguard model: not used for the fix.")
+        for q in res.research.get("quarantined_sources") or []:
+            L.append(f"> ⛔ Quarantined source (prompt injection): <{q}>")
         L.append(f"{res.research.get('findings', '')}")
         for s in res.research.get("sources") or []:
             L.append(f"- <{s}>")
@@ -78,11 +80,13 @@ def render_markdown(cfg: Config, res: RunResult, calls: list, spent: float,
     L.append("")
 
     L.append("### Models & cost (all open-weight, via Otari)")
-    L.append("| role | model | calls | tokens | est. cost |")
+    exact = sum(1 for c in calls if "billed" in (c.note or ""))
+    L.append(f"| role | model | calls | tokens | {'billed' if exact else 'est.'} cost |")
     L.append("|---|---|---|---|---|")
     for row in model_table(calls):
         L.append(f"| {row['role']} | `{row['model']}` | {row['calls']} | {row['tokens']:,} | ${row['cost']:.4f} |")
-    L.append(f"\n**Run total:** ${spent:.4f} of ${cfg.budget_usd:.2f} run budget")
+    L.append(f"\n**Run total:** ${spent:.4f} of ${cfg.budget_usd:.2f} run budget"
+             + (f" (exact Otari billing for {exact}/{len(calls)} requests)" if exact else " (estimated)"))
     if key_budget and key_budget.get("remaining_usd") is not None:
         L.append(f" · Otari key budget remaining: ${key_budget['remaining_usd']:.2f}")
     rids = [c.request_id for c in calls if c.request_id]

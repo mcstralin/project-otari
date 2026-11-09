@@ -62,7 +62,7 @@ class Config:
     budget_usd: float = 0.50          # hard cap for one fix run (client-side)
     max_attempts: int = 2             # attempts per patcher tier before escalating
     research: bool = True             # allow web search/fetch
-    research_max_uses: int = 4        # Otari max_uses for search per request
+    research_max_uses: int = 2        # Otari max_uses for search per request
     safeguard: bool = True            # run injection judge on fetched content
     inference_guardrails: list[dict] = field(default_factory=list)  # Otari request guardrails
     user: str | None = None           # end-user id for per-user budgets

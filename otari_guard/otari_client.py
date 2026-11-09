@@ -88,8 +88,11 @@ def _map_error(status: int, body: Any, request_id: str | None) -> OtariError:
 
 
 class OtariClient:
-    # Sandbox runs are billed per call (observed on hosted Otari: ~$0.0067/run).
-    SANDBOX_EST_USD = 0.0067
+    # Live estimates (observed on hosted Otari, Nov 2026); exact costs are
+    # reconciled from /usage/requests/{id} after the run.
+    SANDBOX_EST_USD = 0.0096
+    FETCH_EST_USD = 0.0067
+    SEARCH_EST_USD = 0.012   # per allowed web search, on top of tokens
 
     def __init__(self, cfg: Config):
         if not cfg.api_key:
@@ -220,15 +223,36 @@ class OtariClient:
         pt = getattr(usage, "prompt_tokens", 0) or 0
         ct = getattr(usage, "completion_tokens", 0) or 0
         resolved = getattr(resp, "model", None) or model
+        search_surcharge = sum(self.SEARCH_EST_USD * int(t.get("max_uses") or 1)
+                               for t in tools or [] if t.get("type") == "otari_web_search")
         rec = CallRecord(
             role=role, model=model, request_id=rid, prompt_tokens=pt, completion_tokens=ct,
-            cost_usd=self.estimate(resolved if resolved in self.pricing() else model, pt, ct),
+            cost_usd=self.estimate(resolved if resolved in self.pricing() else model, pt, ct) + search_surcharge,
             latency_s=time.time() - t0, resolved_model=resolved,
             tools=[t.get("type", "") for t in tools or []],
         )
         self.calls.append(rec)
         content = resp.choices[0].message.content or ""
         return ChatResult(content=content, record=rec, raw=resp.model_dump())
+
+    # ---------------------------------------------------------------- fetch
+    def fetch(self, url: str, max_chars: int = 20000, role: str = "fetch") -> dict:
+        """Fetch one page through Otari (POST /fetch) so the raw text can be screened
+        before any agent model reads it."""
+        self._check_local_budget()
+        body: dict[str, Any] = {"url": url, "max_chars": max_chars}
+        if self.cfg.user:
+            body["user"] = self.cfg.user
+        t0 = time.time()
+        try:
+            r = self._post("/fetch", body)
+        except OtariError as e:
+            self.calls.append(CallRecord(role, "otari:web_fetch", e.request_id, kind="fetch", ok=False,
+                                         latency_s=time.time() - t0, note=str(e)[:200]))
+            raise
+        self.calls.append(CallRecord(role, "otari:web_fetch", r.headers.get("otari-request-id"), kind="fetch",
+                                     cost_usd=self.FETCH_EST_USD, latency_s=time.time() - t0))
+        return r.json()
 
     # --------------------------------------------------------------- sandbox
     def execute(self, code: str, *, container: str | None = "auto", timeout_s: int | None = None,
@@ -259,6 +283,22 @@ class OtariClient:
             return_code=data.get("return_code"),
             container_id=r.headers.get("otari-container-id"), record=rec,
         )
+
+    def reconcile(self) -> float:
+        """Replace estimates with the exact cost Otari billed for each request."""
+        exact = 0
+        for c in self.calls:
+            if not c.request_id:
+                continue
+            try:
+                d = self._get(f"/usage/requests/{c.request_id}")
+                c.cost_usd = float(d.get("cost_usd") or 0.0)
+                c.note = (c.note + " billed").strip()
+                exact += 1
+            except Exception:
+                continue
+        self.reconciled = exact
+        return self.spent_usd
 
     def _check_local_budget(self) -> None:
         if self.spent_usd >= self.cfg.budget_usd:

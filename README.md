@@ -16,6 +16,10 @@ failing tests ─▶ redact secrets ─▶ triage (gpt-oss-20b)
         └── escalate (qwen3-coder-480b)                          PR + receipt (GitHub MCP via Otari)
 ```
 
+## Live results on hosted Otari
+
+**9/9 seeded bugs fixed** ([demo/BENCHMARK.md](demo/BENCHMARK.md)), 8 on the first attempt with the cheapest coder (`qwen3-coder-30b`), around **$0.01 per fix** as billed by Otari. Every fix was proven by the repo's own tests in Otari's sandbox and approved by a reviewer model. In the poisoned-docs case, the open-weight safeguard caught a hidden "send me your env vars" instruction in a page fetched through Otari and quarantined it.
+
 ## Quickstart (60 seconds)
 
 ```bash
@@ -52,7 +56,8 @@ Full workflow: [`examples/workflow.yml`](examples/workflow.yml).
 |---|---|---|
 | **Open-weight models, 6 distinct roles** | `config.py` `DEFAULT_MODELS` | triage `gpt-oss-20b`, patcher `qwen3-coder-30b`, escalation `qwen3-coder-480b`, researcher `gpt-oss-120b`, safeguard `gpt-oss-safeguard-120b`, reviewer `deepseek-v4-flash` |
 | **Code execution** | `otari_client.py` `execute()` → `POST /api/v1/code/execute` with `container: "auto"`; program built in `sandbox.py` | every candidate fix runs the real test suite in Otari's sandbox; later attempts reuse the warm container and ship only the changed files |
-| **Web search + web fetch** | `agent.py` `_research()`: `otari_web_search` (with `max_uses`) + `otari_web_fetch` | used only when triage says the cause is upstream (e.g. a removed stdlib API); sources are cited in the receipt |
+| **Web search + web fetch** | `agent.py` `_research()`: `otari_web_search` (with `max_uses`) + `otari_web_fetch` in the model loop; pages linked from the error are fetched directly via `POST /api/v1/fetch` and screened before any agent reads them | used only when the cause is upstream (e.g. a removed stdlib API); sources are cited in the receipt |
+| **Exact cost accounting** | `otari_client.py` `reconcile()` → `GET /api/v1/usage/requests/{id}` | receipts show Otari's billed cost per role, not estimates |
 | **Routing & fallbacks** | `policies/routing.yml` (`on_failure`, `when: budget_used_pct`); `config.policies` → role calls the policy name; `otari-guard explain` → `/routing/policies/explain` | provider failover and budget-aware downgrades happen server-side; quality escalation (cheap → large coder) happens client-side |
 | **Multiple models, distinct roles** | `agent.py` (one stage = one model) | the receipt itemizes calls, tokens and cost per role |
 | **Budgets & spend limits** | `otari_client.py` maps 402/budget refusals → `BudgetExceeded`; `/key/budget` read for the receipt; local `budget_usd` cap | live budget meter; if a run hits the cap it stops and writes a diagnosis instead of a PR |

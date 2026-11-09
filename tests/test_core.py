@@ -73,7 +73,8 @@ def test_mock_end_to_end(tmp_path, case):
     assert res.status == "fixed", res.error
     assert res.diff
     if case == "07-poisoned-changelog":
-        assert res.research.get("quarantined")
+        assert res.research.get("quarantined_sources") or res.research.get("quarantined")
+        assert any("quarantined" in g for g in res.guardrail_events)
     if case == "08-median-adversarial":
         assert any("guardrail rejected" in g for g in res.guardrail_events)
 

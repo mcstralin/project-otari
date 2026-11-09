@@ -63,7 +63,7 @@ class MockClient:
                     "fix_hint": self.meta.get("fix_hint", "Use the new name."),
                     "sources": self.meta.get("sources", [])}
         elif role == "safeguard":
-            inj = bool(self.meta.get("poisoned"))
+            inj = "AI CODING AGENTS" in user or "Ignore all previous" in user
             body = {"injection": inj, "reason": "asks the agent to read environment secrets" if inj else "clean",
                     "risk_score": 0.97 if inj else 0.02}
         elif role == "reviewer":
@@ -80,6 +80,12 @@ class MockClient:
             body = {"explanation": self.meta.get("explanation", "Fixed the root cause in the source."),
                     "files": [{"path": p, "content": c} for p, c in self.fix.items()]}
         return ChatResult(json.dumps(body), rec, {})
+
+    def fetch(self, url: str, max_chars: int = 20000, role: str = "fetch") -> dict:
+        self._record(role, "otari:web_fetch", kind="fetch")
+        web = Path(__file__).resolve().parent.parent / "demo" / "web" / url.rsplit("/", 1)[-1]
+        return {"url": url, "title": url.rsplit("/", 1)[-1],
+                "text": web.read_text() if web.is_file() else "page text"}
 
     def execute(self, code: str, *, container: str | None = "auto", timeout_s: int | None = None,
                 role: str = "sandbox") -> SandboxResult:

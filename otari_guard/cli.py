@@ -143,6 +143,9 @@ def cmd_fix(args) -> int:
         res = agent.run()
 
     key_budget = None
+    if hasattr(client, "reconcile"):
+        time.sleep(1.5)  # let usage rows settle
+        client.reconcile()
     try:
         key_budget = client.key_budget()
     except Exception:
