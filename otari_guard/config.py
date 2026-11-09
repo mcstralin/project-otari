@@ -72,6 +72,7 @@ class Config:
     protected_paths: list[str] = field(default_factory=lambda: [".github/**", ".otari/**"])
     github_repo: str | None = None    # owner/name
     github_token: str | None = None
+    github_base: str | None = None    # PR base branch (default: current git branch)
     github_mcp_url: str = "https://api.githubcopilot.com/mcp/"
     use_mcp: bool = True
     mock: bool = False

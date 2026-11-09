@@ -27,7 +27,11 @@ Format: time (UTC) · area · what happened · repro / impact.
 
 - **2026-11-09 20:05 · guardrails on hosted (biggest gap):** the policy page offers "Add a guardrail" with profile `prompt-injection`, but hosted Otari has no guardrails service. Repro: `POST /chat/completions` with `"guardrails":[{"profile":"prompt-injection","mode":"block","on_unavailable":"monitor"}]` → served, with header `otari-guardrails: [{"status":"unavailable","reason":"not_configured"}]`; with `on_unavailable:"block"` → `"guardrail profile 'prompt-injection' requested but no guardrails service is configured. Set OTARI_GUARDRAILS_URL…"`. The dashboard lets you save a block/block guardrail on a policy, which would refuse **every** request through it, with no warning that the service is missing. Wanted: a hosted prompt-injection profile backed by an open-weight model (e.g. gpt-oss-safeguard), or at least a disabled state in the UI. We built this ourselves (safeguard step + Agent Guardrails gates).
 
+- **2026-11-09 20:40 · MCP:** inline `mcp_servers` (URL + token in the request) is refused by default: "This workspace does not let a request name MCP servers by URL. Use a stored server through mcp_server_ids". It's a good secure default, and the message said exactly what to do. Registering GitHub's remote MCP server in the dashboard took 2 minutes; `GET /mcp/servers/{id}/tools` listed 46 tools, including `merge_pull_request` and `delete_file`. With a stored server, a request can't narrow `allowed_tools` itself, so least privilege has to be set on the server in the dashboard.
+
 ## What worked well
+
+- MCP end to end: `mcp_server_ids` + `gpt-oss-120b` opened a real PR (branch, push, PR body = our receipt) in one request. Otari ran the whole tool loop server-side.
 
 - Routing policy created in the dashboard in ~2 minutes; response headers `otari-model`, `otari-provider`, `otari-attempt-count`, `otari-fallback` made it trivial to show routing decisions in our receipts.
 

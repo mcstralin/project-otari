@@ -4,9 +4,9 @@
 - [ ] Email used on Otari.ai: ____________
 - [ ] One line: *Self-healing CI agent on open-weight models via Otari: proves fixes in a sandbox, opens a PR with a cost/evidence receipt, never exceeds its budget.*
 - [ ] Public repo: https://github.com/mcstralin/project-otari · branch `devs-wilding`
-- [ ] Link to first commit that uses Otari: ____________
+- [x] Link to first commit that uses Otari: https://github.com/mcstralin/project-otari/commit/9da365d68f45101299264b1e9a05bb6c6c5c93a8
 - [ ] Otari features used: open-weight models (6 roles), code execution, web search + fetch, routing & fallbacks, budgets & spend limits, per-user budgets, guardrails, MCP
-- [ ] Otari repo issue/PR link(s): ____________ (draft from FEEDBACK_LOG.md)
+- [x] Otari repo issue: https://github.com/mozilla-ai/otari/issues/3060 (response_format advertised but rejected on Bedrock)
 - [ ] Demo video (3–5 min, own screen + voice): ____________
 - [ ] Feedback video (3–5 min, own screen + voice): ____________
 - [ ] Written feedback (3 questions), in your own words

@@ -198,9 +198,27 @@ def cmd_fix(args) -> int:
     return 0 if res.status in ("fixed", "nothing_to_fix") else 2
 
 
+def _git(repo: Path, *a: str) -> str:
+    import subprocess
+    try:
+        return subprocess.run(["git", "-c", "safe.directory=*", *a], cwd=repo, capture_output=True,
+                              text=True, timeout=10).stdout.strip()
+    except Exception:
+        return ""
+
+
 def _open_pr(cfg, client, res, receipt: str, args) -> None:
     from .github_pr import PRError, open_pr_mcp, open_pr_rest
-    title = f"otari-guard: {res.summary[:80] or 'fix failing tests'}"
+    repo = Path(args.path).resolve()
+    # Paths in the PR are relative to the git root (the fix may live in a subfolder).
+    top = _git(repo, "rev-parse", "--show-toplevel")
+    prefix = repo.relative_to(Path(top).resolve()).as_posix() if top else "."
+    changes = {(f"{prefix}/{p}" if prefix not in ("", ".") else p): c for p, c in res.changes.items()}
+    base = cfg.github_base or _git(repo, "rev-parse", "--abbrev-ref", "HEAD") or None
+    summary = res.summary or "fix failing tests"
+    if len(summary) > 72:
+        summary = summary[:72].rsplit(" ", 1)[0] + "…"
+    title = f"otari-guard: {summary}"
     if not args.yes:
         ans = console.input(f"\n[bold]Open PR on {cfg.github_repo}?[/] "
                             f"({len(res.changes)} file(s), ${client.spent_usd:.4f} spent) [y/N] ")
@@ -209,7 +227,7 @@ def _open_pr(cfg, client, res, receipt: str, args) -> None:
             return
     if cfg.use_mcp and args.pr_via in ("mcp", "auto") and not cfg.mock:
         try:
-            url = open_pr_mcp(cfg, client, res.changes, title, receipt)
+            url = open_pr_mcp(cfg, client, changes, title, receipt, base=base or "main")
             console.print(f"[green]✔ PR opened via GitHub MCP (through Otari):[/] {url}")
             return
         except Exception as e:
@@ -217,7 +235,7 @@ def _open_pr(cfg, client, res, receipt: str, args) -> None:
             if args.pr_via == "mcp":
                 return
     try:
-        url = open_pr_rest(cfg, res.changes, title, receipt)
+        url = open_pr_rest(cfg, changes, title, receipt, base=base)
         console.print(f"[green]✔ PR opened:[/] {url}")
     except PRError as e:
         console.print(f"[red]PR failed:[/] {e}")

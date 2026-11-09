@@ -155,6 +155,9 @@ class OtariClient:
     def list_tools(self) -> list[dict]:
         return self._get("/tools").get("data", [])
 
+    def mcp_servers(self) -> list[dict]:
+        return self._get("/mcp/servers").get("servers", [])
+
     def key_budget(self) -> dict:
         return self._get("/key/budget")
 
@@ -171,7 +174,8 @@ class OtariClient:
     # ------------------------------------------------------------------ chat
     def chat(self, role: str, messages: list[dict], *, model: str | None = None,
              tools: list[dict] | None = None, guardrails: list[dict] | None = None,
-             mcp_servers: list[dict] | None = None, json_mode: bool = False,
+             mcp_servers: list[dict] | None = None, mcp_server_ids: list[str] | None = None,
+             json_mode: bool = False,
              max_tokens: int | None = None, temperature: float | None = 0.2,
              metadata: dict | None = None) -> ChatResult:
         model = model or self.cfg.model_for(role)
@@ -181,6 +185,8 @@ class OtariClient:
             extra["guardrails"] = guardrails
         if mcp_servers:
             extra["mcp_servers"] = mcp_servers
+        if mcp_server_ids:
+            extra["mcp_server_ids"] = mcp_server_ids
         tags = {"app": "otari-guard", "role": role}
         if self.cfg.user:
             tags["developer"] = self.cfg.user

@@ -60,23 +60,36 @@ def open_pr_rest(cfg: Config, changes: dict[str, str | None], title: str, body: 
 def open_pr_mcp(cfg: Config, client, changes: dict[str, str | None], title: str, body: str,
                 base: str = "main") -> str:
     """Let a model open the PR through GitHub's MCP server, connected by Otari."""
-    if not (cfg.github_token and cfg.github_repo):
-        raise PRError("GITHUB_TOKEN and github_repo are required for the GitHub MCP server")
+    if not cfg.github_repo:
+        raise PRError("github_repo (owner/name, or GITHUB_REPOSITORY) is required")
     owner, name = cfg.github_repo.split("/", 1)
     branch = f"otari-guard/fix-{int(time.time())}"
     files = [{"path": p, "content": c} for p, c in changes.items() if c is not None]
-    server = {
-        "name": "github", "url": cfg.github_mcp_url, "authorization_token": cfg.github_token,
-        "purpose_hint": "GitHub repository operations for opening a pull request.",
-        "allowed_tools": MCP_TOOLS,
-    }
+    # Prefer a GitHub MCP server stored in the Otari workspace: the GitHub token then
+    # lives in Otari, and this app only names the server by id.
+    stored = []
+    try:
+        stored = [x for x in client.mcp_servers()
+                  if "github" in json.dumps(x).lower()]
+    except Exception:
+        pass
+    route: dict = {}
+    if stored:
+        sid = stored[0].get("id") or stored[0].get("mcp_server_id")
+        route["mcp_server_ids"] = [sid]
+    else:
+        route["mcp_servers"] = [{
+            "name": "github", "url": cfg.github_mcp_url, "authorization_token": cfg.github_token,
+            "purpose_hint": "GitHub repository operations for opening a pull request.",
+            "allowed_tools": MCP_TOOLS,
+        }]
     task = (f"In repository {owner}/{name}: 1) create branch `{branch}` from `{base}`; "
             f"2) push these files to that branch in one commit with message 'otari-guard: fix failing tests'; "
             f"3) open a pull request from `{branch}` into `{base}` with the exact title and body below. "
             "Do nothing else. Reply ONLY with JSON {\"pr_url\": \"...\"}.\n\n"
             f"FILES (JSON): {json.dumps(files)}\n\nTITLE: {title}\n\nBODY:\n{body}")
-    res = client.chat("pr", [{"role": "user", "content": task}], model=cfg.model_for("triage"),
-                      mcp_servers=[server], temperature=0)
+    res = client.chat("pr", [{"role": "user", "content": task}], model=cfg.model_for("researcher"),
+                      temperature=0, **route)
     text = res.content
     try:
         start, end = text.find("{"), text.rfind("}")
