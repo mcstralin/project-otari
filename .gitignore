@@ -10,3 +10,4 @@ venv/
 .otari-guard-runs/
 demo/bench-results/*-mock.*
 *.tgz
+private/

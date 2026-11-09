@@ -92,6 +92,6 @@ pip install -e ".[dev]" && pytest -q      # unit tests + offline end-to-end runs
 otari-guard bench demo/cases --mock
 ```
 
-Also: [FEEDBACK_LOG.md](FEEDBACK_LOG.md) (Otari friction found while building, with repros) · [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) · [CHECKLIST.md](CHECKLIST.md)
+Also: [FEEDBACK_LOG.md](FEEDBACK_LOG.md) (Otari friction found while building, with repros)
 
 License: Apache-2.0
