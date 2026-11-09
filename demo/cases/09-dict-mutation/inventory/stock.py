@@ -1,5 +1,6 @@
 def restock(stock, delivery):
     """Return a NEW stock dict with the delivery added; never mutate the input."""
+    result = stock.copy()
     for item, qty in delivery.items():
-        stock[item] = stock.get(item, 0) + qty
-    return stock
+        result[item] = result.get(item, 0) + qty
+    return result
